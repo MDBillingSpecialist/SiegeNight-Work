@@ -105,6 +105,9 @@ local function onHitZombie(zombie, character, bodyPartType, handWeapon)
     if not character then return end
     if not instanceof(character, "IsoPlayer") then return end
 
+    -- Don't count kills of mini-horde zombies as heat (prevents feedback loop)
+    if zombie and zombie:getModData() and zombie:getModData().SN_MiniHorde then return end
+
     local px, py = character:getX(), character:getY()
     if type(px) ~= "number" or type(py) ~= "number" then return end
 
@@ -196,16 +199,17 @@ local function onEveryTenMinutes()
     local threshold = SN.getSandbox("MiniHorde_NoiseThreshold")
 
     for cellKey, data in pairs(heatGrid) do
-        if data.heat >= threshold then
-            if (now - data.lastTrigger) >= cooldownHours then
-                triggerMiniHorde(cellKey, data, playerList)
-                data.heat = 0
-                data.lastTrigger = now
-            end
+        -- Grace period: skip heat accumulation check right after a trigger
+        local inGrace = (now - data.lastTrigger) < cooldownHours
+
+        if not inGrace and data.heat >= threshold then
+            triggerMiniHorde(cellKey, data, playerList)
+            data.heat = 0
+            data.lastTrigger = now
         end
 
-        -- Slower decay (4 instead of 5) so heat accumulates more
-        data.heat = math.max(0, data.heat - 4)
+        -- Decay heat (8 per tick — faster decay to prevent runaway accumulation)
+        data.heat = math.max(0, data.heat - 8)
 
         if data.heat <= 0 and (now - data.lastTrigger) > 1 then
             heatGrid[cellKey] = nil

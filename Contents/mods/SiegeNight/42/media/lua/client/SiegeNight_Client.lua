@@ -87,16 +87,6 @@ local BREAK_SPEECHES = {
 -- SOUND SYSTEM
 -- ==========================================
 
-local function playWarningSound()
-    local sounds = {"zombierand0", "zombierand1", "zombierand2", "zombierand3", "zombierand4"}
-    local soundName = sounds[ZombRand(#sounds) + 1]
-    local emitter = getSoundManager():PlaySound(soundName, false, 0)
-    if emitter then
-        getSoundManager():PlayAsMusic(soundName, emitter, false, 0)
-        emitter:setVolume(0.08)
-    end
-end
-
 local function playActiveSiegeSound()
     local sounds = {"zombierand0", "zombierand1", "zombierand2", "zombierand3",
                     "zombierand4", "zombierand5", "zombierand6", "zombierand7",
@@ -303,27 +293,6 @@ local function onTick()
                     clientTotalWaves = totalW
                 end
             end
-        end
-    end
-
-    -- WARNING: escalating sounds
-    if clientSiegeState == SN.STATE_WARNING then
-        warningSoundTimer = warningSoundTimer - 1
-        if warningSoundTimer <= 0 then
-            if SN.getSandbox("WarningSignsEnabled") then
-                playWarningSound()
-            end
-            local hour = SN.getCurrentHour()
-            if hour >= 18 then
-                warningSoundInterval = 600
-            elseif hour >= 15 then
-                warningSoundInterval = 900
-            elseif hour >= 12 then
-                warningSoundInterval = 1200
-            else
-                warningSoundInterval = 1800
-            end
-            warningSoundTimer = warningSoundInterval
         end
     end
 
