@@ -1,6 +1,7 @@
 version=1
 id=3669589584
 title=Siege Night
+previewfile=preview.png
 description=[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-title.png[/img]
 description=
 description=[i]Every night could be your last.[/i]
