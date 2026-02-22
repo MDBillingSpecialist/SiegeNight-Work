@@ -3,6 +3,7 @@
     Noise heat tracking and triggered mini-hordes between siege nights.
     Runs SERVER-SIDE only.
 
+    v2.1 - Fixed infinite horde feedback loop, increased heat decay, added grace period
     v2.0 - Expanded heat sources
          - Player count scaling
          - Establishment-aware sizing

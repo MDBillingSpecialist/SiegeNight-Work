@@ -9,7 +9,7 @@ local SN = {}
 -- ==========================================
 -- VERSION
 -- ==========================================
-SN.VERSION = "2.2.0"
+SN.VERSION = "2.5.0"
 SN.MOD_ID = "SiegeNight"
 SN.CLIENT_MODULE = "SiegeNightModule"
 
@@ -86,7 +86,6 @@ SN.DEFAULTS = {
     ScalingMultiplier = 1.5,
     MaxZombies = 1500,
     WarningSignsEnabled = true,
-    WeatherEffects = true,
     DirectionalAttacks = true,
     SpawnDistance = 45,
     -- Special zombies

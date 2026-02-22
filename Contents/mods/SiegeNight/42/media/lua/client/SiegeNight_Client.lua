@@ -3,6 +3,7 @@
     Client-side warning signs, atmosphere sounds, wave notifications.
     Runs CLIENT-SIDE only.
 
+    v2.3 - Removed warning groan sounds entirely
     v2.2 - NO vignette, NO ISPanel, NO UIManager.DrawRect
          - Pure Say() + sounds for all feedback
          - Wave/break notifications
