@@ -88,18 +88,6 @@ local BREAK_SPEECHES = {
 -- SOUND SYSTEM
 -- ==========================================
 
-local function playActiveSiegeSound()
-    local sounds = {"zombierand0", "zombierand1", "zombierand2", "zombierand3",
-                    "zombierand4", "zombierand5", "zombierand6", "zombierand7",
-                    "zombierand8", "zombierand9"}
-    local soundName = sounds[ZombRand(#sounds) + 1]
-    local emitter = getSoundManager():PlaySound(soundName, false, 0)
-    if emitter then
-        getSoundManager():PlayAsMusic(soundName, emitter, false, 0)
-        emitter:setVolume(0.12)
-    end
-end
-
 local function playSiegeHorn()
     local emitter = getSoundManager():PlaySound("zombierand7", false, 0)
     if emitter then
@@ -297,14 +285,8 @@ local function onTick()
         end
     end
 
-    -- ACTIVE: siege atmosphere sounds
+    -- ACTIVE: occasional combat speech
     if clientSiegeState == SN.STATE_ACTIVE then
-        activeSoundTimer = activeSoundTimer - 1
-        if activeSoundTimer <= 0 then
-            playActiveSiegeSound()
-            activeSoundTimer = 300 + ZombRand(300)
-        end
-
         -- Occasional combat speech
         if ZombRand(3000) == 0 then
             trySpeech(ACTIVE_SPEECHES, nil)
