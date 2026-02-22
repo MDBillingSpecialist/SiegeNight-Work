@@ -472,11 +472,11 @@ local function forceFullSiege()
         return
     end
 
-    -- Force straight to ACTIVE regardless of current state or time
+    -- Force straight to ACTIVE with MAX zombies regardless of current state or time
     local currentDay = math.floor(SN.getActualDay())
     siegeData.siegeCount = math.max(0, SN.getSiegeCount(currentDay))
     siegeData.siegeState = SN.STATE_ACTIVE
-    siegeData.targetZombies = SN.calculateSiegeZombies(siegeData.siegeCount, 1)
+    siegeData.targetZombies = SN.getSandbox("MaxZombies")
     siegeData.spawnedThisSiege = 0
     siegeData.tanksSpawned = 0
     siegeData.killsThisSiege = 0
@@ -490,7 +490,7 @@ local function forceFullSiege()
 
     SN.log("DEBUG: Forced FULL SIEGE. Siege #" .. siegeData.siegeCount
         .. ", target: " .. siegeData.targetZombies .. " from " .. SN.DIR_NAMES[dir + 1])
-    player:Say("[SN] SIEGE FORCED! " .. siegeData.targetZombies .. " zombies from " .. SN.DIR_NAMES[dir + 1] .. "!")
+    player:Say("[SN] MAX SIEGE! " .. siegeData.targetZombies .. " zombies from " .. SN.DIR_NAMES[dir + 1] .. "!")
 end
 
 -- ==========================================
