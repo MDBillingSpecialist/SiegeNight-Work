@@ -490,7 +490,10 @@ local function forceFullSiege()
 
     SN.log("DEBUG: Forced FULL SIEGE. Siege #" .. siegeData.siegeCount
         .. ", target: " .. siegeData.targetZombies .. " from " .. SN.DIR_NAMES[dir + 1])
-    player:Say("[SN] MAX SIEGE! " .. siegeData.targetZombies .. " zombies from " .. SN.DIR_NAMES[dir + 1] .. "!")
+    -- Override break durations to 1 min for debug testing
+    siegeData.debugBreakOverride = 1800  -- 1 min at 30fps
+
+    player:Say("[SN] MAX SIEGE! " .. siegeData.targetZombies .. " zombies from " .. SN.DIR_NAMES[dir + 1] .. " (1min breaks)")
 end
 
 -- ==========================================

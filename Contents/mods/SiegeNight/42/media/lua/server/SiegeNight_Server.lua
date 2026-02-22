@@ -378,6 +378,10 @@ local function advanceWavePhase(siegeData)
         -- Trickle done -> start Break
         local waveDef = waveStructure[currentWaveIndex]
         local breakTicks = waveDef and waveDef.breakDurationTicks or 0
+        -- Debug override for break duration
+        if siegeData.debugBreakOverride and siegeData.debugBreakOverride > 0 then
+            breakTicks = siegeData.debugBreakOverride
+        end
         if breakTicks > 0 then
             currentPhase = SN.PHASE_BREAK
             breakTicksRemaining = breakTicks
