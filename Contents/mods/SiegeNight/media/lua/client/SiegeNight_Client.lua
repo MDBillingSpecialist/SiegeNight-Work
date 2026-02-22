@@ -27,9 +27,9 @@ local warningSoundTimer = 0
 local warningSoundInterval = 1800
 local activeSoundTimer = 0
 
--- Speech cooldown
-local lastSpeechTick = 0
-local SPEECH_COOLDOWN = 900
+-- Speech cooldown (tick-based, incremented in onTick)
+local speechCooldownTicks = 0
+local SPEECH_COOLDOWN = 900  -- ~30 seconds at 30fps
 
 -- Wave tracking
 local clientCurrentWave = 0
@@ -57,15 +57,22 @@ local ACTIVE_SPEECHES = {
     "Don't stop!",
     "They're everywhere!",
     "Hold the line!",
-    "Just gotta survive til dawn...",
+    "Just gotta kill them all...",
     "How many more?!",
 }
 
 local DAWN_SPEECHES = {
-    "Dawn... we made it.",
+    "We did it... they're all dead.",
     "Is it over? I think it's over.",
-    "We survived another night.",
-    "Thank god for sunrise.",
+    "We survived. We actually survived.",
+    "That's the last of them.",
+}
+
+local HORDE_COMPLETE_SPEECHES = {
+    "That's all of them — now kill every last one!",
+    "No more coming... finish them off!",
+    "The full horde is here. Fight to live!",
+    "This is it — kill or be killed!",
 }
 
 local BREAK_SPEECHES = {
@@ -118,8 +125,7 @@ local function trySpeech(speechTable, indexOrRandom)
     local player = getPlayer()
     if not player then return end
 
-    local now = getTimestampMs()
-    if (now - lastSpeechTick) < (SPEECH_COOLDOWN * 33) then return end
+    if speechCooldownTicks > 0 then return end
 
     local text
     if type(speechTable) == "table" and type(indexOrRandom) == "number" then
@@ -130,7 +136,7 @@ local function trySpeech(speechTable, indexOrRandom)
 
     if text then
         player:Say(text)
-        lastSpeechTick = now
+        speechCooldownTicks = SPEECH_COOLDOWN
     end
 end
 
@@ -165,17 +171,27 @@ local function onEnterActive()
 end
 
 local function onEnterDawn()
-    SN.log("Client: Entering DAWN state")
+    SN.log("Client: Siege cleared!")
     local player = getPlayer()
     if player then
         local kills = 0
         local siegeData = SN.getWorldData()
         if siegeData then kills = siegeData.killsThisSiege or 0 end
         if kills > 0 then
-            player:Say("Dawn... " .. kills .. " of them down.")
+            player:Say("It's over... " .. kills .. " of them dead.")
         else
             trySpeech(DAWN_SPEECHES, nil)
         end
+    end
+end
+
+local function onHordeComplete(targetZombies)
+    SN.log("Client: Full horde has arrived — " .. (targetZombies or "?") .. " zombies")
+    playSiegeHorn()
+    local player = getPlayer()
+    if player then
+        speechCooldownTicks = 0  -- Force this speech through
+        trySpeech(HORDE_COMPLETE_SPEECHES, nil)
     end
 end
 
@@ -239,6 +255,10 @@ local function onServerCommand(module, command, args)
             trySpeech(BREAK_SPEECHES, nil)
         end
 
+    elseif command == "HordeComplete" then
+        local targetZombies = args["targetZombies"] or 0
+        onHordeComplete(targetZombies)
+
     elseif command == "MiniHorde" then
         local count = args["count"] or 0
         local dir = args["direction"] or 0
@@ -257,6 +277,11 @@ end
 local function onTick()
     local player = getPlayer()
     if not player then return end
+
+    -- Decrement speech cooldown
+    if speechCooldownTicks > 0 then
+        speechCooldownTicks = speechCooldownTicks - 1
+    end
 
     -- SP: mirror server world data state directly
     if not isClient() then

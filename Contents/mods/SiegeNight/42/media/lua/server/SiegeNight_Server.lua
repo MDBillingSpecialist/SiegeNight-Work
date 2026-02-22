@@ -53,7 +53,7 @@ local function onZombieDead(zombie)
     if not zombie then return end
     local siegeData = SN.getWorldData()
     if not siegeData then return end
-    if siegeData.siegeState ~= SN.STATE_ACTIVE and siegeData.siegeState ~= SN.STATE_DAWN then return end
+    if siegeData.siegeState ~= SN.STATE_ACTIVE then return end
 
     -- Check if this was a siege zombie
     local md = zombie:getModData()
@@ -456,6 +456,7 @@ local function enterActiveState(siegeData, reason, playerList)
     siegeData.tanksSpawned = 0
     siegeData.killsThisSiege = 0
     siegeData.specialKillsThisSiege = 0
+    siegeData.hordeCompleteNotified = false
     siegeData.siegeStartHour = SN.getCurrentHour()
 
     -- Build wave structure
@@ -549,20 +550,23 @@ local function onServerTick()
             end
 
         elseif siegeData.siegeState == SN.STATE_ACTIVE then
-            if currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
+            -- Siege ends when players kill the horde, not at dawn
+            local kills = siegeData.killsThisSiege or 0
+            local target = siegeData.targetZombies or 0
+            if target > 0 and kills >= target then
                 siegeData.siegeState = SN.STATE_DAWN
                 dawnTicksRemaining = DAWN_DURATION_TICKS
-                SN.log("DAWN state entered. Spawned " .. siegeData.spawnedThisSiege .. "/" .. siegeData.targetZombies
-                    .. " | Kills: " .. (siegeData.killsThisSiege or 0))
+                SN.log("SIEGE CLEARED! Kills: " .. kills .. "/" .. target
+                    .. " | Spawned: " .. siegeData.spawnedThisSiege)
                 if isServer() then
                     sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
                         state = SN.STATE_DAWN,
                         spawnedTotal = siegeData.spawnedThisSiege,
-                        killsThisSiege = siegeData.killsThisSiege or 0,
+                        killsThisSiege = kills,
                         specialKills = siegeData.specialKillsThisSiege or 0,
                     })
                 end
-                SN.fireCallback("onSiegeEnd", siegeData.siegeCount, siegeData.killsThisSiege or 0, siegeData.spawnedThisSiege)
+                SN.fireCallback("onSiegeEnd", siegeData.siegeCount, kills, siegeData.spawnedThisSiege)
             end
         end
     end
@@ -684,7 +688,20 @@ local function onServerTick()
     lastServerState = siegeData.siegeState
 
     if siegeData.siegeState ~= SN.STATE_ACTIVE then return end
-    if siegeData.spawnedThisSiege >= siegeData.targetZombies then return end
+    if siegeData.spawnedThisSiege >= siegeData.targetZombies then
+        -- All zombies spawned — notify clients once
+        if not siegeData.hordeCompleteNotified then
+            siegeData.hordeCompleteNotified = true
+            SN.log("All " .. siegeData.targetZombies .. " zombies spawned. Fight to clear!")
+            if isServer() then
+                sendServerCommand(SN.CLIENT_MODULE, "HordeComplete", {
+                    targetZombies = siegeData.targetZombies,
+                    killsSoFar = siegeData.killsThisSiege or 0,
+                })
+            end
+        end
+        return
+    end
 
     -- BREAK phase: count down, no spawning
     if currentPhase == SN.PHASE_BREAK then

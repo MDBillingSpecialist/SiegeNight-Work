@@ -1,6 +1,6 @@
 name=Siege Night
 id=SiegeNight
-description=<H1><ORANGE>SIEGE NIGHT v2.3.1 - WIP
+description=<H1><ORANGE>SIEGE NIGHT v2.4.0 - WIP
 description=<BR>
 description=<WHITE>This is a WIP first attempt at making a mod, but we really needed some kind of siege night in Zomboid.
 description=<BR>
@@ -20,5 +20,5 @@ description=- Debug tools (Numpad keys) for testing
 description=<BR>
 description=<RED>WIP - Report bugs on the Workshop page!
 poster=poster.png
-modversion=2.3.1
+modversion=2.4.0
 author=Unprocessable Entities

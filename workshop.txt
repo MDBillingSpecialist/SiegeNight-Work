@@ -1,7 +1,7 @@
 version=1
 id=3669589584
 title=Siege Night
-description=SIEGE NIGHT v2.3 - WIP
+description=SIEGE NIGHT v2.3.1- WIP
 description=
 description=This is a WIP first attempt at making a mod, but we really needed some kind of siege night in Zomboid.
 description=
