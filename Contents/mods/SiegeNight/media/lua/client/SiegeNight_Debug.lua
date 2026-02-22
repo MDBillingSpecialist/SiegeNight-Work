@@ -141,6 +141,8 @@ function SiegeNightDebugHUD:prerender()
     self:drawText("Num0=debug Num1=dump Num2=nextState Num3=spawn10", x, y, 0.4, 0.4, 0.4, 1.0, font)
     y = y + lh
     self:drawText("Num4=specials Num5=mini Num6=HUD Num7=today Num8=skip1h", x, y, 0.4, 0.4, 0.4, 1.0, font)
+    y = y + lh
+    self:drawText("Num9=FORCE FULL SIEGE (any time)", x, y, 1.0, 0.3, 0.3, 1.0, font)
 end
 
 local function toggleDebugHUD()
@@ -392,7 +394,7 @@ local function forceMiniHorde()
         end
     end
 
-    addSound(player, math.floor(px), math.floor(py), 0, 200, 10)
+    getWorldSoundManager():addSound(player, math.floor(px), math.floor(py), 0, 200, 10)
 
     SN.log("DEBUG: Mini-horde forced. " .. spawned .. " zombies from " .. SN.DIR_NAMES[dir + 1])
     player:Say("[SN] Mini-horde! " .. spawned .. " from " .. SN.DIR_NAMES[dir + 1])
@@ -458,6 +460,40 @@ local function onFFTick()
 end
 
 -- ==========================================
+-- FORCE FULL SIEGE (works any time of day)
+-- ==========================================
+local function forceFullSiege()
+    local player = getPlayer()
+    if not player then return end
+
+    local siegeData = SN.getWorldData()
+    if not siegeData then
+        player:Say("[SN] World data not loaded yet")
+        return
+    end
+
+    -- Force straight to ACTIVE regardless of current state or time
+    local currentDay = math.floor(SN.getActualDay())
+    siegeData.siegeCount = math.max(0, SN.getSiegeCount(currentDay))
+    siegeData.siegeState = SN.STATE_ACTIVE
+    siegeData.targetZombies = SN.calculateSiegeZombies(siegeData.siegeCount, 1)
+    siegeData.spawnedThisSiege = 0
+    siegeData.tanksSpawned = 0
+    siegeData.killsThisSiege = 0
+    siegeData.specialKillsThisSiege = 0
+    siegeData.hordeCompleteNotified = false
+    siegeData.siegeStartHour = SN.getCurrentHour()
+
+    local dir = ZombRand(8)
+    if dir == siegeData.lastDirection then dir = (dir + 1) % 8 end
+    siegeData.lastDirection = dir
+
+    SN.log("DEBUG: Forced FULL SIEGE. Siege #" .. siegeData.siegeCount
+        .. ", target: " .. siegeData.targetZombies .. " from " .. SN.DIR_NAMES[dir + 1])
+    player:Say("[SN] SIEGE FORCED! " .. siegeData.targetZombies .. " zombies from " .. SN.DIR_NAMES[dir + 1] .. "!")
+end
+
+-- ==========================================
 -- KEYBIND HANDLER
 -- ==========================================
 
@@ -496,6 +532,8 @@ local function onKeyPressed(keynum)
         setSiegeToday()
     elseif keynum == Keyboard.KEY_NUMPAD8 then
         fastForwardOneHour()
+    elseif keynum == Keyboard.KEY_NUMPAD9 then
+        forceFullSiege()
     end
 end
 
