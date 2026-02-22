@@ -1,0 +1,755 @@
+--[[
+    SiegeNight_Server.lua
+    Core siege logic: state machine, wave-based spawn engine, directional attacks, special zombies.
+    Runs SERVER-SIDE only.
+
+    v2.0 - Wave system: WAVE -> TRICKLE -> BREAK -> repeat
+         - Player count scaling
+         - Kill tracking
+         - No CLEANUP state (DAWN -> IDLE)
+         - Establishment scaling (loot, structures)
+         - Special zombie visual distinction
+]]
+
+local SN = require("SiegeNight_Shared")
+
+-- ==========================================
+-- LOCAL STATE
+-- ==========================================
+local spawningSpecial = false  -- mutex for sandbox-swap operations
+
+-- Dawn delay (ticks)
+local dawnTicksRemaining = 0
+local DAWN_DURATION_TICKS = 300  -- ~10 seconds at 30fps
+
+-- Zombie attraction system
+local attractorTickCounter = 0
+local ATTRACTOR_INTERVAL = 150  -- ~5 seconds
+
+-- Siege zombie tracking for re-pathing
+local siegeZombies = {}
+local REPATH_INTERVAL = 150
+local repathTickCounter = 0
+
+-- ==========================================
+-- WAVE SYSTEM STATE
+-- ==========================================
+local waveStructure = {}       -- array of wave definitions from SN.calculateWaveStructure()
+local currentWaveIndex = 1     -- which wave we're on (1-based)
+local currentPhase = SN.PHASE_WAVE  -- WAVE, TRICKLE, or BREAK
+local phaseSpawnedCount = 0    -- zombies spawned in current phase
+local phaseTargetCount = 0     -- target for current phase
+local breakTicksRemaining = 0  -- countdown during BREAK phase
+local spawnTickCounter = 0     -- tick counter for spawn intervals
+
+-- ==========================================
+-- KILL TRACKING
+-- ==========================================
+-- Listen for zombie deaths to count siege kills
+local function onZombieDead(zombie)
+    if not zombie then return end
+    local siegeData = SN.getWorldData()
+    if not siegeData then return end
+    if siegeData.siegeState ~= SN.STATE_ACTIVE and siegeData.siegeState ~= SN.STATE_DAWN then return end
+
+    -- Check if this was a siege zombie
+    local md = zombie:getModData()
+    if md and md.SN_Siege then
+        siegeData.killsThisSiege = (siegeData.killsThisSiege or 0) + 1
+        if md.SN_Type and md.SN_Type ~= "normal" then
+            siegeData.specialKillsThisSiege = (siegeData.specialKillsThisSiege or 0) + 1
+        end
+    end
+end
+
+-- ==========================================
+-- PLAYER LIST HELPER
+-- ==========================================
+local function getPlayerList()
+    local playerList = {}
+    local isSP = not isServer() and not isClient()
+    if isSP then
+        local player = getPlayer()
+        if player and player:isAlive() then
+            table.insert(playerList, player)
+        end
+    else
+        local players = getOnlinePlayers()
+        if players then
+            for p = 0, players:size() - 1 do
+                local player = players:get(p)
+                if player and player:isAlive() then
+                    table.insert(playerList, player)
+                end
+            end
+        end
+    end
+    return playerList, isSP
+end
+
+-- ==========================================
+-- ESTABLISHMENT SCORING
+-- ==========================================
+--- Estimate how established players are based on nearby structures and inventory.
+--- Returns a multiplier (1.0 = fresh spawn, up to 2.0 = well-established).
+local function getEstablishmentMultiplier(playerList)
+    if not SN.getSandbox("MiniHorde_EstablishmentScaling") then return 1.0 end
+    local score = 0
+    for _, player in ipairs(playerList) do
+        -- Check for generator nearby (major establishment indicator)
+        local cell = getWorld():getCell()
+        if cell then
+            local px, py = math.floor(player:getX()), math.floor(player:getY())
+            for gx = -5, 5, 5 do
+                for gy = -5, 5, 5 do
+                    local sq = cell:getGridSquare(px + gx, py + gy, 0)
+                    if sq then
+                        local gen = sq:getGenerator()
+                        if gen and gen:isRunning() then
+                            score = score + 30
+                        end
+                    end
+                end
+            end
+        end
+        -- Inventory weight as loot proxy (heavier = more established)
+        local inv = player:getInventory()
+        if inv then
+            local weight = inv:getCapacityWeight()
+            score = score + math.min(20, math.floor(weight))
+        end
+    end
+    -- Normalize: 0-50 -> 1.0-2.0
+    local mult = 1.0 + math.min(1.0, score / 50)
+    return mult
+end
+
+-- ==========================================
+-- DIRECTION SYSTEM
+-- ==========================================
+
+local function pickPrimaryDirection(lastDirection)
+    local dir = ZombRand(8)
+    local attempts = 0
+    while dir == lastDirection and attempts < 20 do
+        dir = ZombRand(8)
+        attempts = attempts + 1
+    end
+    return dir
+end
+
+local function getSpawnPosition(player, primaryDir, usePrimary)
+    local px = player:getX()
+    local py = player:getY()
+    local spawnDist = SN.getSandbox("SpawnDistance")
+
+    local dir
+    if SN.getSandbox("DirectionalAttacks") and usePrimary then
+        dir = primaryDir
+    else
+        dir = ZombRand(8)
+    end
+
+    local baseX = px + SN.DIR_X[dir + 1] * spawnDist
+    local baseY = py + SN.DIR_Y[dir + 1] * spawnDist
+
+    local spread = ZombRand(41) - 20
+    local perpX = -SN.DIR_Y[dir + 1]
+    local perpY = SN.DIR_X[dir + 1]
+
+    local targetX = math.floor(baseX + perpX * spread)
+    local targetY = math.floor(baseY + perpY * spread)
+
+    -- Pass 1: ideal spot
+    for attempt = 0, 30 do
+        local tryX = targetX + ZombRand(11) - 5
+        local tryY = targetY + ZombRand(11) - 5
+        local square = getWorld():getCell():getGridSquare(tryX, tryY, 0)
+        if square then
+            local isSafe = SafeHouse.getSafeHouse(square)
+            if square:isFree(false) and square:isOutside() and isSafe == nil then
+                return tryX, tryY
+            end
+        end
+    end
+
+    -- Pass 2: closer
+    local closerDist = math.floor(spawnDist * 0.5)
+    for attempt = 0, 30 do
+        local cBaseX = px + SN.DIR_X[dir + 1] * closerDist
+        local cBaseY = py + SN.DIR_Y[dir + 1] * closerDist
+        local cSpread = ZombRand(21) - 10
+        local tryX = math.floor(cBaseX + perpX * cSpread) + ZombRand(7) - 3
+        local tryY = math.floor(cBaseY + perpY * cSpread) + ZombRand(7) - 3
+        local square = getWorld():getCell():getGridSquare(tryX, tryY, 0)
+        if square and square:isFree(false) and square:isOutside() then
+            return tryX, tryY
+        end
+    end
+
+    -- Pass 3: random scatter
+    for fallback = 0, 30 do
+        local range = math.floor(spawnDist * 0.7)
+        local fx = math.floor(px + ZombRand(range * 2) - range)
+        local fy = math.floor(py + ZombRand(range * 2) - range)
+        local dist = math.sqrt((fx - px)^2 + (fy - py)^2)
+        if dist >= 15 then
+            local square = getWorld():getCell():getGridSquare(fx, fy, 0)
+            if square and square:isFree(false) then
+                return fx, fy
+            end
+        end
+    end
+
+    SN.debug("All spawn position attempts failed near " .. math.floor(px) .. "," .. math.floor(py))
+    return nil, nil
+end
+
+-- ==========================================
+-- SPECIAL ZOMBIE SYSTEM
+-- ==========================================
+
+local function rollSpecialType(siegeData)
+    if not SN.getSandbox("SpecialZombiesEnabled") then return "normal" end
+    if siegeData.siegeCount < (SN.getSandbox("SpecialZombiesStartWeek") - 1) then return "normal" end
+
+    local hoursSinceDusk = SN.getHoursSinceDusk()
+    if hoursSinceDusk < SN.MIDNIGHT_RELATIVE_HOUR then return "normal" end
+
+    local roll = ZombRand(100)
+    local sprinterChance = SN.getSandbox("SprinterPercent")
+    local breakerChance = SN.getSandbox("BreakerPercent")
+
+    if roll < sprinterChance then return "sprinter" end
+    if roll < sprinterChance + breakerChance then return "breaker" end
+    return "normal"
+end
+
+local function shouldSpawnTank(siegeData)
+    if not SN.getSandbox("SpecialZombiesEnabled") then return false end
+    if siegeData.siegeCount < (SN.getSandbox("SpecialZombiesStartWeek") - 1) then return false end
+    if siegeData.tanksSpawned >= SN.getSandbox("TankCount") then return false end
+
+    local hoursSinceDusk = SN.getHoursSinceDusk()
+    local nightDuration = SN.getNightDuration()
+    if hoursSinceDusk < (nightDuration * 0.65) then return false end
+
+    local remainingTanks = SN.getSandbox("TankCount") - siegeData.tanksSpawned
+    local remainingHours = nightDuration - hoursSinceDusk
+    if remainingHours <= 0 then return false end
+
+    local chance = math.min(15, math.floor(remainingTanks / remainingHours * 30))
+    return ZombRand(100) < chance
+end
+
+--- Apply special zombie stats and VISUAL DISTINCTION.
+--- Breakers: construction outfits (unchanged)
+--- Tanks: military outfits + crawl set to false (they WALK upright, slow and menacing)
+--- Sprinters: keep random outfit (they blend in — surprise factor)
+local function applySpecialStats(zombie, specialType)
+    if specialType == "normal" then return end
+    if spawningSpecial then return end
+    spawningSpecial = true
+
+    local origSpeed = getSandboxOptions():getOptionByName("ZombieLore.Speed"):getValue()
+    local origStrength = getSandboxOptions():getOptionByName("ZombieLore.Strength"):getValue()
+    local origToughness = getSandboxOptions():getOptionByName("ZombieLore.Toughness"):getValue()
+    local origCognition = getSandboxOptions():getOptionByName("ZombieLore.Cognition"):getValue()
+
+    if specialType == "sprinter" then
+        getSandboxOptions():set("ZombieLore.Speed", 1)          -- Sprinter
+    elseif specialType == "breaker" then
+        getSandboxOptions():set("ZombieLore.Strength", 1)       -- Superhuman
+        getSandboxOptions():set("ZombieLore.Cognition", 1)      -- Navigate + Open Doors
+    elseif specialType == "tank" then
+        getSandboxOptions():set("ZombieLore.Toughness", 1)      -- Tough
+        getSandboxOptions():set("ZombieLore.Speed", 3)           -- Shambler
+        getSandboxOptions():set("ZombieLore.Strength", 1)        -- Superhuman
+    end
+
+    zombie:makeInactive(true)
+    zombie:makeInactive(false)
+
+    getSandboxOptions():set("ZombieLore.Speed", origSpeed)
+    getSandboxOptions():set("ZombieLore.Strength", origStrength)
+    getSandboxOptions():set("ZombieLore.Toughness", origToughness)
+    getSandboxOptions():set("ZombieLore.Cognition", origCognition)
+
+    -- Tag the zombie for identification
+    zombie:getModData().SN_Type = specialType
+
+    -- Visual identification via outfit
+    if specialType == "breaker" then
+        local outfit = SN.BREAKER_OUTFITS[ZombRand(#SN.BREAKER_OUTFITS) + 1]
+        zombie:dressInNamedOutfit(outfit)
+    elseif specialType == "tank" then
+        local outfit = SN.TANK_OUTFITS[ZombRand(#SN.TANK_OUTFITS) + 1]
+        zombie:dressInNamedOutfit(outfit)
+    end
+    -- Sprinters keep random outfit — surprise factor
+
+    spawningSpecial = false
+end
+
+-- ==========================================
+-- SPAWN ENGINE
+-- ==========================================
+
+local function spawnOneZombie(player, primaryDir, specialType, healthMult)
+    local usePrimary = (ZombRand(100) < 65)
+
+    local spawnX, spawnY = getSpawnPosition(player, primaryDir, usePrimary)
+    if not spawnX then
+        SN.debug("Failed to find spawn position for zombie")
+        return false
+    end
+
+    healthMult = healthMult or 1.5
+    local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
+
+    local zombies = addZombiesInOutfit(spawnX, spawnY, 0, 1, outfit, 50, false, false, false, false, false, false, healthMult)
+    if zombies and zombies:size() > 0 then
+        local zombie = zombies:get(0)
+        applySpecialStats(zombie, specialType)
+
+        -- Full Bandits-style targeting combo
+        zombie:pathToCharacter(player)
+        zombie:setTarget(player)
+        zombie:setAttackedBy(player)
+        zombie:spottedNew(player, true)
+        zombie:addAggro(player, 1)
+
+        -- Tag as siege zombie
+        zombie:getModData().SN_Siege = true
+
+        -- Sound attractor
+        getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 200, 10)
+
+        -- Track for re-pathing
+        table.insert(siegeZombies, { zombie = zombie, player = player })
+        local MAX_TRACKED_ZOMBIES = 200
+        if #siegeZombies > MAX_TRACKED_ZOMBIES then
+            local overflow = #siegeZombies - MAX_TRACKED_ZOMBIES
+            for ci = 1, overflow do
+                table.remove(siegeZombies, 1)
+            end
+        end
+
+        return true
+    end
+    return false
+end
+
+-- ==========================================
+-- WAVE PHASE MANAGEMENT
+-- ==========================================
+
+--- Advance to the next phase within the current wave, or next wave entirely.
+local function advanceWavePhase(siegeData)
+    if currentPhase == SN.PHASE_WAVE then
+        -- Wave done -> start Trickle
+        currentPhase = SN.PHASE_TRICKLE
+        phaseSpawnedCount = 0
+        local waveDef = waveStructure[currentWaveIndex]
+        phaseTargetCount = waveDef and waveDef.trickleSize or 0
+        SN.log("Wave " .. currentWaveIndex .. " TRICKLE phase: " .. phaseTargetCount .. " zombies")
+
+    elseif currentPhase == SN.PHASE_TRICKLE then
+        -- Trickle done -> start Break
+        local waveDef = waveStructure[currentWaveIndex]
+        local breakTicks = waveDef and waveDef.breakDurationTicks or 0
+        if breakTicks > 0 then
+            currentPhase = SN.PHASE_BREAK
+            breakTicksRemaining = breakTicks
+            phaseSpawnedCount = 0
+            phaseTargetCount = 0
+            local breakMinutes = string.format("%.1f", breakTicks / 1800)
+            SN.log("Wave " .. currentWaveIndex .. " BREAK: " .. breakMinutes .. " minutes")
+            -- Notify clients of break
+            if isServer() then
+                sendServerCommand(SN.CLIENT_MODULE, "WaveBreak", {
+                    waveIndex = currentWaveIndex,
+                    totalWaves = #waveStructure,
+                    breakSeconds = math.floor(breakTicks / 30),
+                })
+            end
+            SN.fireCallback("onBreakStart", currentWaveIndex, #waveStructure, breakTicks)
+        else
+            -- No break (last wave) -> stay in spawn mode until target reached
+            currentWaveIndex = currentWaveIndex + 1
+            if currentWaveIndex <= #waveStructure then
+                currentPhase = SN.PHASE_WAVE
+                phaseSpawnedCount = 0
+                phaseTargetCount = waveStructure[currentWaveIndex].waveSize
+                SN.log("Wave " .. currentWaveIndex .. "/" .. #waveStructure .. " WAVE phase: " .. phaseTargetCount .. " zombies")
+                if isServer() then
+                    sendServerCommand(SN.CLIENT_MODULE, "WaveStart", {
+                        waveIndex = currentWaveIndex,
+                        totalWaves = #waveStructure,
+                    })
+                end
+                SN.fireCallback("onWaveStart", currentWaveIndex, #waveStructure)
+            end
+        end
+
+    elseif currentPhase == SN.PHASE_BREAK then
+        -- Break done -> advance to next wave
+        currentWaveIndex = currentWaveIndex + 1
+        if currentWaveIndex <= #waveStructure then
+            currentPhase = SN.PHASE_WAVE
+            phaseSpawnedCount = 0
+            phaseTargetCount = waveStructure[currentWaveIndex].waveSize
+            SN.log("Wave " .. currentWaveIndex .. "/" .. #waveStructure .. " WAVE phase: " .. phaseTargetCount .. " zombies")
+            if isServer() then
+                sendServerCommand(SN.CLIENT_MODULE, "WaveStart", {
+                    waveIndex = currentWaveIndex,
+                    totalWaves = #waveStructure,
+                })
+            end
+            SN.fireCallback("onWaveStart", currentWaveIndex, #waveStructure)
+        else
+            SN.log("All waves completed")
+        end
+    end
+
+    -- Update ModData for debug HUD
+    siegeData.currentWaveIndex = currentWaveIndex
+    siegeData.currentPhase = currentPhase
+end
+
+-- ==========================================
+-- STATE MACHINE
+-- ==========================================
+
+local function enterActiveState(siegeData, reason, playerList)
+    local dir = pickPrimaryDirection(siegeData.lastDirection)
+    siegeData.lastDirection = dir
+    siegeData.siegeState = SN.STATE_ACTIVE
+    siegeData.siegeCount = math.max(0, siegeData.siegeCount)
+
+    -- Calculate zombie count with player scaling and establishment
+    local playerCount = playerList and #playerList or 1
+    local estMult = getEstablishmentMultiplier(playerList or {})
+    local baseTarget = SN.calculateSiegeZombies(siegeData.siegeCount, playerCount)
+    siegeData.targetZombies = math.floor(baseTarget * estMult)
+    siegeData.spawnedThisSiege = 0
+    siegeData.tanksSpawned = 0
+    siegeData.killsThisSiege = 0
+    siegeData.specialKillsThisSiege = 0
+    siegeData.siegeStartHour = SN.getCurrentHour()
+
+    -- Build wave structure
+    waveStructure = SN.calculateWaveStructure(siegeData.targetZombies)
+    currentWaveIndex = 1
+    currentPhase = SN.PHASE_WAVE
+    phaseSpawnedCount = 0
+    phaseTargetCount = waveStructure[1] and waveStructure[1].waveSize or siegeData.targetZombies
+    breakTicksRemaining = 0
+    spawnTickCounter = 0
+
+    siegeData.currentWaveIndex = currentWaveIndex
+    siegeData.currentPhase = currentPhase
+
+    SN.log("ACTIVE state entered (" .. reason .. "). Siege #" .. siegeData.siegeCount
+        .. ", target: " .. siegeData.targetZombies .. " zombies"
+        .. " (" .. #waveStructure .. " waves)"
+        .. " from " .. SN.DIR_NAMES[dir + 1]
+        .. " | players=" .. playerCount .. " estMult=" .. string.format("%.2f", estMult))
+
+    if isServer() then
+        sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
+            state = SN.STATE_ACTIVE,
+            siegeCount = siegeData.siegeCount,
+            direction = dir,
+            targetZombies = siegeData.targetZombies,
+            totalWaves = #waveStructure,
+        })
+    end
+
+    SN.fireCallback("onSiegeStart", siegeData.siegeCount, dir, siegeData.targetZombies)
+end
+
+local function onEveryHour()
+    if not SN.getSandbox("Enabled") then return end
+
+    local siegeData = SN.getWorldData()
+    if not siegeData then return end
+    local currentDay = math.floor(SN.getActualDay())
+    local currentHour = SN.getCurrentHour()
+
+    -- ---- IDLE STATE ----
+    if siegeData.siegeState == SN.STATE_IDLE then
+        local isSiegeToday = SN.isSiegeDay(currentDay) or (currentDay >= siegeData.nextSiegeDay)
+
+        if isSiegeToday and currentHour >= SN.WARNING_HOUR and currentHour < SN.DUSK_HOUR then
+            siegeData.siegeState = SN.STATE_WARNING
+            siegeData.siegeCount = math.max(0, SN.getSiegeCount(currentDay))
+            SN.log("WARNING state entered. Siege #" .. siegeData.siegeCount .. " on day " .. currentDay)
+            if isServer() then
+                sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
+                    state = SN.STATE_WARNING,
+                    siegeCount = siegeData.siegeCount,
+                    day = currentDay,
+                })
+            end
+        end
+        -- Loaded mid-siege check
+        if isSiegeToday and (currentHour >= SN.DUSK_HOUR or currentHour < SN.DAWN_HOUR) then
+            siegeData.siegeCount = math.max(0, SN.getSiegeCount(currentDay))
+            local playerList = getPlayerList()
+            enterActiveState(siegeData, "loaded mid-siege", playerList)
+        end
+
+    -- ---- WARNING STATE ----
+    elseif siegeData.siegeState == SN.STATE_WARNING then
+        if currentHour >= SN.DUSK_HOUR then
+            local playerList = getPlayerList()
+            enterActiveState(siegeData, "natural dusk transition", playerList)
+        end
+
+    -- ---- ACTIVE STATE ----
+    elseif siegeData.siegeState == SN.STATE_ACTIVE then
+        if currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
+            siegeData.siegeState = SN.STATE_DAWN
+            dawnTicksRemaining = DAWN_DURATION_TICKS
+            SN.log("DAWN state entered. Spawned " .. siegeData.spawnedThisSiege .. "/" .. siegeData.targetZombies
+                .. " | Kills: " .. (siegeData.killsThisSiege or 0))
+            if isServer() then
+                sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
+                    state = SN.STATE_DAWN,
+                    spawnedTotal = siegeData.spawnedThisSiege,
+                    killsThisSiege = siegeData.killsThisSiege or 0,
+                    specialKills = siegeData.specialKillsThisSiege or 0,
+                })
+            end
+            SN.fireCallback("onSiegeEnd", siegeData.siegeCount, siegeData.killsThisSiege or 0, siegeData.spawnedThisSiege)
+        end
+
+    -- ---- DAWN STATE ----
+    elseif siegeData.siegeState == SN.STATE_DAWN then
+        -- Dawn -> IDLE handled by onTick (delay timer)
+    end
+end
+
+-- Track last known state for debug-forced transitions
+local lastServerState = SN.STATE_IDLE
+
+local function onServerTick()
+    if not SN.getSandbox("Enabled") then return end
+
+    local siegeData = SN.getWorldData()
+    if not siegeData then return end
+
+    -- ==========================================
+    -- DAWN → IDLE TRANSITION (tick-based delay)
+    -- ==========================================
+    if siegeData.siegeState == SN.STATE_DAWN then
+        if dawnTicksRemaining <= 0 then
+            dawnTicksRemaining = DAWN_DURATION_TICKS
+            SN.debug("Dawn timer was not set — initializing to " .. DAWN_DURATION_TICKS)
+        else
+            dawnTicksRemaining = dawnTicksRemaining - 1
+            if dawnTicksRemaining <= 0 then
+                -- Record siege history
+                siegeData.totalSiegesCompleted = (siegeData.totalSiegesCompleted or 0) + 1
+                siegeData.totalKillsAllTime = (siegeData.totalKillsAllTime or 0) + (siegeData.killsThisSiege or 0)
+                siegeData.nextSiegeDay = math.floor(SN.getActualDay()) + SN.getSandbox("FrequencyDays")
+
+                -- Store this siege's stats in ModData for history panel
+                -- ModData only supports primitives, so we use indexed keys
+                local idx = siegeData.totalSiegesCompleted
+                siegeData["history_" .. idx .. "_kills"] = siegeData.killsThisSiege or 0
+                siegeData["history_" .. idx .. "_specials"] = siegeData.specialKillsThisSiege or 0
+                siegeData["history_" .. idx .. "_spawned"] = siegeData.spawnedThisSiege or 0
+                siegeData["history_" .. idx .. "_target"] = siegeData.targetZombies or 0
+                siegeData["history_" .. idx .. "_day"] = math.floor(SN.getActualDay())
+                siegeData["history_" .. idx .. "_dir"] = siegeData.lastDirection or -1
+
+                -- Transition to IDLE directly (no cleanup state)
+                siegeData.siegeState = SN.STATE_IDLE
+                SN.log("Returned to IDLE. Next siege day: " .. siegeData.nextSiegeDay
+                    .. " | History recorded: siege #" .. idx)
+
+                if isServer() then
+                    sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
+                        state = SN.STATE_IDLE,
+                        nextSiegeDay = siegeData.nextSiegeDay,
+                        killsThisSiege = siegeData.killsThisSiege or 0,
+                        specialKills = siegeData.specialKillsThisSiege or 0,
+                    })
+                end
+            end
+        end
+    end
+
+    -- ==========================================
+    -- ZOMBIE ATTRACTION + RE-PATHING (during ACTIVE only)
+    -- ==========================================
+    if siegeData.siegeState == SN.STATE_ACTIVE then
+        -- Sound attractor
+        attractorTickCounter = attractorTickCounter - 1
+        if attractorTickCounter <= 0 then
+            attractorTickCounter = ATTRACTOR_INTERVAL
+            local attractPlayers = getPlayerList()
+            for _, player in ipairs(attractPlayers) do
+                getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 200, 10)
+            end
+            SN.debug("Sound attractor fired")
+        end
+
+        -- Re-pathing
+        repathTickCounter = repathTickCounter - 1
+        if repathTickCounter <= 0 then
+            repathTickCounter = REPATH_INTERVAL
+            local alive = {}
+            local repathed = 0
+            for _, entry in ipairs(siegeZombies) do
+                local zombie = entry.zombie
+                local player = entry.player
+                local ok, dead = pcall(function() return zombie:isDead() end)
+                if ok and not dead and player and player:isAlive() then
+                    zombie:pathToCharacter(player)
+                    zombie:setTarget(player)
+                    zombie:setAttackedBy(player)
+                    zombie:spottedNew(player, true)
+                    zombie:addAggro(player, 1)
+                    table.insert(alive, entry)
+                    repathed = repathed + 1
+                end
+            end
+            siegeZombies = alive
+            if repathed > 0 then
+                SN.debug("Re-pathed " .. repathed .. " siege zombies (" .. #siegeZombies .. " tracked)")
+            end
+        end
+    else
+        if #siegeZombies > 0 then
+            siegeZombies = {}
+            SN.debug("Siege ended — cleared zombie tracking list")
+        end
+    end
+
+    -- ==========================================
+    -- WAVE-BASED SPAWN ENGINE (during ACTIVE only)
+    -- ==========================================
+    -- Detect debug-forced state transitions
+    if siegeData.siegeState == SN.STATE_ACTIVE and lastServerState ~= SN.STATE_ACTIVE then
+        if siegeData.spawnedThisSiege == 0 and spawnTickCounter > 1 then
+            SN.debug("Detected ACTIVE state entry — resetting spawn counter")
+            spawnTickCounter = 0
+        end
+        -- If wave structure wasn't built (debug-forced), build it now
+        if #waveStructure == 0 and siegeData.targetZombies > 0 then
+            waveStructure = SN.calculateWaveStructure(siegeData.targetZombies)
+            currentWaveIndex = 1
+            currentPhase = SN.PHASE_WAVE
+            phaseSpawnedCount = 0
+            phaseTargetCount = waveStructure[1] and waveStructure[1].waveSize or siegeData.targetZombies
+            SN.log("Wave structure built (debug-forced): " .. #waveStructure .. " waves")
+        end
+    end
+    lastServerState = siegeData.siegeState
+
+    if siegeData.siegeState ~= SN.STATE_ACTIVE then return end
+    if siegeData.spawnedThisSiege >= siegeData.targetZombies then return end
+
+    -- BREAK phase: count down, no spawning
+    if currentPhase == SN.PHASE_BREAK then
+        breakTicksRemaining = breakTicksRemaining - 1
+        if breakTicksRemaining <= 0 then
+            advanceWavePhase(siegeData)
+        end
+        return
+    end
+
+    -- Check if current phase target is reached
+    if phaseSpawnedCount >= phaseTargetCount then
+        advanceWavePhase(siegeData)
+        -- If we just entered a break, return
+        if currentPhase == SN.PHASE_BREAK then return end
+    end
+
+    -- Determine spawn interval based on current phase
+    local interval
+    if currentPhase == SN.PHASE_WAVE then
+        interval = SN.WAVE_SPAWN_INTERVAL
+    else
+        interval = SN.TRICKLE_SPAWN_INTERVAL
+    end
+
+    spawnTickCounter = spawnTickCounter - 1
+    if spawnTickCounter > 0 then return end
+    spawnTickCounter = interval
+
+    -- Determine batch size
+    local batchSize
+    if currentPhase == SN.PHASE_WAVE then
+        batchSize = SN.WAVE_BATCH_SIZE
+    else
+        batchSize = SN.TRICKLE_BATCH_SIZE
+    end
+
+    SN.debug("Spawn tick: phase=" .. currentPhase .. " wave=" .. currentWaveIndex
+        .. "/" .. #waveStructure .. " phaseSpawned=" .. phaseSpawnedCount
+        .. "/" .. phaseTargetCount .. " total=" .. siegeData.spawnedThisSiege
+        .. "/" .. siegeData.targetZombies)
+
+    -- Build player list
+    local playerList = getPlayerList()
+    if #playerList == 0 then
+        SN.debug("No players found for spawning")
+        return
+    end
+
+    local zombiesPerPlayer = math.max(1, math.floor(batchSize / #playerList))
+
+    for _, player in ipairs(playerList) do
+        for i = 1, zombiesPerPlayer do
+            if siegeData.spawnedThisSiege >= siegeData.targetZombies then break end
+            if phaseSpawnedCount >= phaseTargetCount then break end
+
+            local specialType = "normal"
+            local healthMult = 1.5
+
+            if shouldSpawnTank(siegeData) then
+                specialType = "tank"
+                healthMult = SN.getSandbox("TankHealthMultiplier")
+                siegeData.tanksSpawned = siegeData.tanksSpawned + 1
+                SN.log("TANK spawned! (" .. siegeData.tanksSpawned .. "/" .. SN.getSandbox("TankCount") .. ")")
+            else
+                specialType = rollSpecialType(siegeData)
+            end
+
+            if spawnOneZombie(player, siegeData.lastDirection, specialType, healthMult) then
+                siegeData.spawnedThisSiege = siegeData.spawnedThisSiege + 1
+                phaseSpawnedCount = phaseSpawnedCount + 1
+            end
+        end
+    end
+end
+
+-- ==========================================
+-- INITIALIZATION
+-- ==========================================
+
+local function onGameTimeLoaded()
+    SN.log("Server module loaded. Version " .. SN.VERSION)
+    local siegeData = SN.getWorldData()
+    if siegeData then
+        SN.log("Current state: " .. siegeData.siegeState)
+        SN.log("Next siege day: " .. siegeData.nextSiegeDay)
+        SN.log("Siege count: " .. siegeData.siegeCount)
+        SN.log("Total completed: " .. (siegeData.totalSiegesCompleted or 0))
+        SN.log("All-time kills: " .. (siegeData.totalKillsAllTime or 0))
+    else
+        SN.log("World data not available yet")
+    end
+end
+
+-- ==========================================
+-- EVENT HOOKS
+-- ==========================================
+Events.OnGameTimeLoaded.Add(onGameTimeLoaded)
+Events.EveryHours.Add(onEveryHour)
+Events.OnTick.Add(onServerTick)
+Events.OnZombieDead.Add(onZombieDead)

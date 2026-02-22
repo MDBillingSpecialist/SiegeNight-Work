@@ -1,0 +1,4 @@
+UI_EN = {
+    UI_SiegeNight = "Siege",
+    UI_SiegeNightPanel = "Siege Night status, kill tracking, and siege history.",
+}

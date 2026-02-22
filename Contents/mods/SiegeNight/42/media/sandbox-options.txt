@@ -1,0 +1,210 @@
+VERSION = 1,
+
+option SiegeNight.Enabled
+{
+	type = boolean,
+	default = true,
+	page = SiegeNight,
+	translation = SN_Enabled,
+}
+
+option SiegeNight.FirstSiegeDay
+{
+	type = integer,
+	min = 1,
+	max = 365,
+	default = 3,
+	page = SiegeNight,
+	translation = SN_FirstSiegeDay,
+}
+
+option SiegeNight.FrequencyDays
+{
+	type = integer,
+	min = 1,
+	max = 365,
+	default = 3,
+	page = SiegeNight,
+	translation = SN_FrequencyDays,
+}
+
+option SiegeNight.BaseZombieCount
+{
+	type = integer,
+	min = 10,
+	max = 5000,
+	default = 75,
+	page = SiegeNight,
+	translation = SN_BaseZombieCount,
+}
+
+option SiegeNight.ScalingMultiplier
+{
+	type = double,
+	min = 1.0,
+	max = 5.0,
+	default = 1.5,
+	page = SiegeNight,
+	translation = SN_ScalingMultiplier,
+}
+option SiegeNight.MaxZombies
+{
+	type = integer,
+	min = 50,
+	max = 5000,
+	default = 1500,
+	page = SiegeNight,
+	translation = SN_MaxZombies,
+}
+
+option SiegeNight.WarningSignsEnabled
+{
+	type = boolean,
+	default = true,
+	page = SiegeNight,
+	translation = SN_WarningSignsEnabled,
+}
+
+option SiegeNight.DirectionalAttacks
+{
+	type = boolean,
+	default = true,
+	page = SiegeNight,
+	translation = SN_DirectionalAttacks,
+}
+
+option SiegeNight.SpawnDistance
+{
+	type = integer,
+	min = 15,
+	max = 80,
+	default = 45,
+	page = SiegeNight,
+	translation = SN_SpawnDistance,
+}
+
+option SiegeNight.SpecialZombiesEnabled
+{
+	type = boolean,
+	default = true,
+	page = SiegeNightSpecial,
+	translation = SN_SpecialZombiesEnabled,
+}
+option SiegeNight.SpecialZombiesStartWeek
+{
+	type = integer,
+	min = 1,
+	max = 52,
+	default = 3,
+	page = SiegeNightSpecial,
+	translation = SN_SpecialZombiesStartWeek,
+}
+
+option SiegeNight.SprinterPercent
+{
+	type = integer,
+	min = 0,
+	max = 100,
+	default = 5,
+	page = SiegeNightSpecial,
+	translation = SN_SprinterPercent,
+}
+
+option SiegeNight.BreakerPercent
+{
+	type = integer,
+	min = 0,
+	max = 100,
+	default = 10,
+	page = SiegeNightSpecial,
+	translation = SN_BreakerPercent,
+}
+option SiegeNight.TankCount
+{
+	type = integer,
+	min = 0,
+	max = 20,
+	default = 2,
+	page = SiegeNightSpecial,
+	translation = SN_TankCount,
+}
+
+option SiegeNight.TankHealthMultiplier
+{
+	type = double,
+	min = 1.0,
+	max = 20.0,
+	default = 5.0,
+	page = SiegeNightSpecial,
+	translation = SN_TankHealthMultiplier,
+}
+
+option SiegeNight.MiniHorde_Enabled
+{
+	type = boolean,
+	default = true,
+	page = SiegeNightMiniHorde,
+	translation = SN_MiniHorde_Enabled,
+}
+option SiegeNight.MiniHorde_NoiseThreshold
+{
+	type = integer,
+	min = 10,
+	max = 200,
+	default = 50,
+	page = SiegeNightMiniHorde,
+	translation = SN_MiniHorde_NoiseThreshold,
+}
+
+option SiegeNight.MiniHorde_MaxZombies
+{
+	type = integer,
+	min = 5,
+	max = 200,
+	default = 50,
+	page = SiegeNightMiniHorde,
+	translation = SN_MiniHorde_MaxZombies,
+}
+
+option SiegeNight.MiniHorde_MinZombies
+{
+	type = integer,
+	min = 1,
+	max = 100,
+	default = 10,
+	page = SiegeNightMiniHorde,
+	translation = SN_MiniHorde_MinZombies,
+}
+option SiegeNight.MiniHorde_CooldownMinutes
+{
+	type = integer,
+	min = 5,
+	max = 180,
+	default = 30,
+	page = SiegeNightMiniHorde,
+	translation = SN_MiniHorde_CooldownMinutes,
+}
+
+option SiegeNight.MiniHorde_ActivityScaling
+{
+	type = boolean,
+	default = true,
+	page = SiegeNightMiniHorde,
+	translation = SN_MiniHorde_ActivityScaling,
+}
+
+option SiegeNight.MiniHorde_PlayerScaling
+{
+	type = boolean,
+	default = true,
+	page = SiegeNightMiniHorde,
+	translation = SN_MiniHorde_PlayerScaling,
+}
+
+option SiegeNight.MiniHorde_EstablishmentScaling
+{
+	type = boolean,
+	default = true,
+	page = SiegeNightMiniHorde,
+	translation = SN_MiniHorde_EstablishmentScaling,
+}
