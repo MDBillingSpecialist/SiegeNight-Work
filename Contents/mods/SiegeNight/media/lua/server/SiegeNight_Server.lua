@@ -638,12 +638,13 @@ local function onServerTick()
             if dawnTicksRemaining <= 0 then
                 -- Record siege history
                 siegeData.totalSiegesCompleted = (siegeData.totalSiegesCompleted or 0) + 1
-                siegeData.totalKillsAllTime = (siegeData.totalKillsAllTime or 0) + (siegeData.killsThisSiege or 0)
+                siegeData.totalKillsAllTime = (siegeData.totalKillsAllTime or 0) + getTotalSiegeKills(siegeData)
                 siegeData.nextSiegeDay = math.floor(SN.getActualDay()) + SN.getSandbox("FrequencyDays")
 
                 -- Store this siege's stats (capped to MAX_SIEGE_HISTORY)
                 local idx = siegeData.totalSiegesCompleted
                 siegeData["history_" .. idx .. "_kills"] = siegeData.killsThisSiege or 0
+                siegeData["history_" .. idx .. "_bonus"] = siegeData.bonusKills or 0
                 siegeData["history_" .. idx .. "_specials"] = siegeData.specialKillsThisSiege or 0
                 siegeData["history_" .. idx .. "_spawned"] = siegeData.spawnedThisSiege or 0
                 siegeData["history_" .. idx .. "_target"] = siegeData.targetZombies or 0
@@ -654,6 +655,7 @@ local function onServerTick()
                 local pruneIdx = idx - MAX_SIEGE_HISTORY
                 if pruneIdx > 0 then
                     siegeData["history_" .. pruneIdx .. "_kills"] = nil
+                    siegeData["history_" .. pruneIdx .. "_bonus"] = nil
                     siegeData["history_" .. pruneIdx .. "_specials"] = nil
                     siegeData["history_" .. pruneIdx .. "_spawned"] = nil
                     siegeData["history_" .. pruneIdx .. "_target"] = nil
