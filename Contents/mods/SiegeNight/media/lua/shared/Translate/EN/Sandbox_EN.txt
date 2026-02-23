@@ -19,8 +19,6 @@ Sandbox_EN = {
     SN_MaxZombies_tooltip = "Hard cap on total zombies per siege night. Prevents server overload.",
     SN_WarningSignsEnabled = "Warning Signs",
     SN_WarningSignsEnabled_tooltip = "Enable pre-siege warnings: character speech and distant sounds throughout the day.",
-    SN_WeatherEffects = "Visual Effects",
-    SN_WeatherEffects_tooltip = "Enable screen vignette effects during siege nights. Red tint during active siege, amber during warning.",
     SN_DirectionalAttacks = "Directional Attacks",
     SN_DirectionalAttacks_tooltip = "Zombies primarily attack from one direction each siege. Direction announced at siege start.",
     SN_SpawnDistance = "Spawn Distance",
@@ -56,5 +54,5 @@ Sandbox_EN = {
     SN_MiniHorde_PlayerScaling = "Player Count Scaling",
     SN_MiniHorde_PlayerScaling_tooltip = "Scale mini-horde size with number of online players. More players = bigger hordes.",
     SN_MiniHorde_EstablishmentScaling = "Establishment Scaling",
-    SN_MiniHorde_EstablishmentScaling_tooltip = "Scale horde size based on how established players are (generators, loot). More stuff = more attention.",
+    SN_MiniHorde_EstablishmentScaling_tooltip = "Scale siege AND mini-horde size based on how established players are (generators, loot). More stuff = bigger hordes.",
 }

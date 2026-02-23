@@ -65,13 +65,6 @@ option SiegeNight.WarningSignsEnabled
 	translation = SN_WarningSignsEnabled,
 }
 
-option SiegeNight.WeatherEffects
-{
-	type = boolean,
-	default = true,
-	page = SiegeNight,
-	translation = SN_WeatherEffects,
-}
 option SiegeNight.DirectionalAttacks
 {
 	type = boolean,
