@@ -176,27 +176,31 @@ local function getSpawnPosition(player, primaryDir, usePrimary)
         end
     end
 
-    -- Pass 2: closer
-    local closerDist = math.floor(spawnDist * 0.5)
+    -- Pass 2: closer but still respects minimum distance
+    local minDist = math.max(25, math.floor(spawnDist * 0.5))
+    local closerDist = math.floor(spawnDist * 0.65)
     for attempt = 0, 30 do
         local cBaseX = px + SN.DIR_X[dir + 1] * closerDist
         local cBaseY = py + SN.DIR_Y[dir + 1] * closerDist
         local cSpread = ZombRand(21) - 10
         local tryX = math.floor(cBaseX + perpX * cSpread) + ZombRand(7) - 3
         local tryY = math.floor(cBaseY + perpY * cSpread) + ZombRand(7) - 3
-        local square = getWorld():getCell():getGridSquare(tryX, tryY, 0)
-        if square and square:isFree(false) and square:isOutside() then
-            return tryX, tryY
+        local dist = math.sqrt((tryX - px)^2 + (tryY - py)^2)
+        if dist >= minDist then
+            local square = getWorld():getCell():getGridSquare(tryX, tryY, 0)
+            if square and square:isFree(false) and square:isOutside() then
+                return tryX, tryY
+            end
         end
     end
 
-    -- Pass 3: random scatter
+    -- Pass 3: random scatter — still enforce minimum distance
     for fallback = 0, 30 do
         local range = math.floor(spawnDist * 0.7)
         local fx = math.floor(px + ZombRand(range * 2) - range)
         local fy = math.floor(py + ZombRand(range * 2) - range)
         local dist = math.sqrt((fx - px)^2 + (fy - py)^2)
-        if dist >= 15 then
+        if dist >= minDist then
             local square = getWorld():getCell():getGridSquare(fx, fy, 0)
             if square and square:isFree(false) then
                 return fx, fy
@@ -459,7 +463,8 @@ local function enterActiveState(siegeData, reason, playerList)
     local playerCount = playerList and #playerList or 1
     local estMult = getEstablishmentMultiplier(playerList or {})
     local baseTarget = SN.calculateSiegeZombies(siegeData.siegeCount, playerCount)
-    siegeData.targetZombies = math.floor(baseTarget * estMult)
+    local maxZ = SN.getSandbox("MaxZombies")
+    siegeData.targetZombies = math.min(math.floor(baseTarget * estMult), maxZ)
     siegeData.spawnedThisSiege = 0
     siegeData.tanksSpawned = 0
     siegeData.killsThisSiege = 0
