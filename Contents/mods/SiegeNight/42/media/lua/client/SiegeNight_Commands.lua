@@ -3,11 +3,11 @@
     Player-facing chat commands for Siege Night. CLIENT-SIDE.
 
     Commands (type in chat):
-    !siege start    — Start a siege immediately (admin only in MP)
-    !siege stop     — End the current siege (admin only in MP)
-    !siege status   — Show current siege state and stats
-    !siege next     — Show when the next siege is scheduled
-    !siege vote     — Start a vote to trigger a siege (any player)
+    !siege start    â€” Start a siege immediately (admin only in MP)
+    !siege stop     â€” End the current siege (admin only in MP)
+    !siege status   â€” Show current siege state and stats
+    !siege next     â€” Show when the next siege is scheduled
+    !siege vote     â€” Start a vote to trigger a siege (any player)
 ]]
 
 local SN = require("SiegeNight_Shared")
@@ -24,6 +24,12 @@ local VOTE_TIMEOUT_MS = 60000  -- 60 seconds to vote
 -- ==========================================
 -- CHAT COMMAND HANDLER
 -- ==========================================
+
+-- Safely suppress chat message display (methods may not exist in all PZ versions)
+local function suppressMessage(chatMessage)
+    if chatMessage.setOverHeadSpeech then chatMessage:setOverHeadSpeech(false) end
+    if chatMessage.setShowInChat then chatMessage:setShowInChat(false) end
+end
 
 local function onChatMessage(chatMessage)
     if not chatMessage then return end
@@ -47,14 +53,12 @@ local function onChatMessage(chatMessage)
     if subcommand == "start" then
         -- Send start request to server
         sendClientCommand(player, SN.CLIENT_MODULE, "CmdSiegeStart", {})
-        chatMessage:setOverHeadSpeech(false)
-        chatMessage:setShowInChat(false)
+        suppressMessage(chatMessage)
 
     elseif subcommand == "stop" or subcommand == "end" then
         -- Send stop request to server
         sendClientCommand(player, SN.CLIENT_MODULE, "CmdSiegeStop", {})
-        chatMessage:setOverHeadSpeech(false)
-        chatMessage:setShowInChat(false)
+        suppressMessage(chatMessage)
 
     elseif subcommand == "status" then
         local siegeData = SN.getWorldData()
@@ -64,7 +68,7 @@ local function onChatMessage(chatMessage)
             local target = siegeData.targetZombies or 0
             local state = siegeData.siegeState or "UNKNOWN"
             if state == SN.STATE_ACTIVE then
-                player:Say("Siege #" .. siegeData.siegeCount .. " — " .. kills .. " killed, " .. spawned .. "/" .. target .. " spawned")
+                player:Say("Siege #" .. siegeData.siegeCount .. " â€” " .. kills .. " killed, " .. spawned .. "/" .. target .. " spawned")
             elseif state == SN.STATE_IDLE then
                 player:Say("No siege active. Next: day " .. (siegeData.nextSiegeDay or "?"))
             else
@@ -73,8 +77,7 @@ local function onChatMessage(chatMessage)
         else
             player:Say("Siege Night not loaded yet.")
         end
-        chatMessage:setOverHeadSpeech(false)
-        chatMessage:setShowInChat(false)
+        suppressMessage(chatMessage)
 
     elseif subcommand == "next" then
         local siegeData = SN.getWorldData()
@@ -87,23 +90,19 @@ local function onChatMessage(chatMessage)
                 player:Say("Next siege in " .. daysUntil .. " day" .. (daysUntil > 1 and "s" or "") .. " (day " .. siegeData.nextSiegeDay .. ")")
             end
         end
-        chatMessage:setOverHeadSpeech(false)
-        chatMessage:setShowInChat(false)
+        suppressMessage(chatMessage)
 
     elseif subcommand == "vote" then
         sendClientCommand(player, SN.CLIENT_MODULE, "CmdSiegeVote", {})
-        chatMessage:setOverHeadSpeech(false)
-        chatMessage:setShowInChat(false)
+        suppressMessage(chatMessage)
 
     elseif subcommand == "yes" then
         sendClientCommand(player, SN.CLIENT_MODULE, "CmdSiegeVoteYes", {})
-        chatMessage:setOverHeadSpeech(false)
-        chatMessage:setShowInChat(false)
+        suppressMessage(chatMessage)
 
     else
         player:Say("Commands: !siege start, stop, status, next, vote")
-        chatMessage:setOverHeadSpeech(false)
-        chatMessage:setShowInChat(false)
+        suppressMessage(chatMessage)
     end
 end
 
@@ -134,18 +133,25 @@ local function onServerCommand(module, command, args)
         player:Say("Vote passed! Siege incoming!")
 
     elseif command == "VoteFailed" then
-        player:Say("Vote failed — not enough votes in time.")
+        player:Say("Vote failed â€” not enough votes in time.")
     end
 end
 
 -- ==========================================
 -- EVENT HOOKS
 -- ==========================================
-if Events.OnChatMessage then
+-- B42 uses OnAddMessage instead of OnChatMessage
+if Events.OnAddMessage then
+    Events.OnAddMessage.Add(function(message, tabID)
+        onChatMessage(message)
+    end)
+    SN.log("Commands module loaded (OnAddMessage). Type !siege for help.")
+elseif Events.OnChatMessage then
     Events.OnChatMessage.Add(onChatMessage)
+    SN.log("Commands module loaded (OnChatMessage). Type !siege for help.")
+else
+    SN.log("WARNING: No chat event found â€” commands will not work!")
 end
 if Events.OnServerCommand then
     Events.OnServerCommand.Add(onServerCommand)
 end
-
-SN.log("Commands module loaded. Type !siege for help.")
