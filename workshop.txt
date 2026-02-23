@@ -104,6 +104,7 @@ description=[list]
 description=[*] Fixed chat commands not working in B42 MP — OnChatMessage event doesn't exist in B42, replaced with OnAddMessage
 description=[*] Changed command prefix from /siege to !siege — PZ intercepts slash commands as built-in, causing "unknown command" errors
 description=[*] All server response messages updated to show correct !siege syntax
+description=[*] Fixed !siege start during daytime immediately canceling — manual and vote-triggered sieges now bypass dawn fallback
 description=[/list]
 description=
 description=[b]v2.5.3[/b]
