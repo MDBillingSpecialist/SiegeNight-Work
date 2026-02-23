@@ -255,9 +255,14 @@ function ISSiegeNightPanel:render()
     y = y + fhMed + 4
 
     local kills = siegeData.killsThisSiege or 0
+    local bonus = siegeData.bonusKills or 0
     local specKills = siegeData.specialKillsThisSiege or 0
+    local killText = tostring(kills) .. " killed"
+    if bonus > 0 then
+        killText = killText .. " (+" .. bonus .. " attracted)"
+    end
     self:drawText("This Siege:", x, y, C_GREY.r, C_GREY.g, C_GREY.b, 1.0, font)
-    self:drawText(tostring(kills) .. " killed", col2, y, C_WHITE.r, C_WHITE.g, C_WHITE.b, 1.0, font)
+    self:drawText(killText, col2, y, C_WHITE.r, C_WHITE.g, C_WHITE.b, 1.0, font)
     y = y + fh
 
     if specKills > 0 then

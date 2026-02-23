@@ -49,20 +49,29 @@ local spawnTickCounter = 0     -- tick counter for spawn intervals
 -- KILL TRACKING
 -- ==========================================
 -- Listen for zombie deaths to count siege kills
+-- Tracks both tagged siege zombies and untagged "attracted" kills
 local function onZombieDead(zombie)
     if not zombie then return end
     local siegeData = SN.getWorldData()
     if not siegeData then return end
     if siegeData.siegeState ~= SN.STATE_ACTIVE then return end
 
-    -- Check if this was a siege zombie
     local md = zombie:getModData()
     if md and md.SN_Siege then
+        -- Tagged siege zombie
         siegeData.killsThisSiege = (siegeData.killsThisSiege or 0) + 1
         if md.SN_Type and md.SN_Type ~= "normal" then
             siegeData.specialKillsThisSiege = (siegeData.specialKillsThisSiege or 0) + 1
         end
+    else
+        -- Untagged zombie killed during siege (attracted by noise, nearby, etc.)
+        siegeData.bonusKills = (siegeData.bonusKills or 0) + 1
     end
+end
+
+--- Total effective kills = tagged + bonus (used for siege end check)
+local function getTotalSiegeKills(siegeData)
+    return (siegeData.killsThisSiege or 0) + (siegeData.bonusKills or 0)
 end
 
 -- ==========================================
@@ -482,6 +491,7 @@ local function enterActiveState(siegeData, reason, playerList)
     siegeData.spawnedThisSiege = 0
     siegeData.tanksSpawned = 0
     siegeData.killsThisSiege = 0
+    siegeData.bonusKills = 0
     siegeData.specialKillsThisSiege = 0
     siegeData.hordeCompleteNotified = false
     siegeData.siegeStartHour = SN.getCurrentHour()
@@ -579,8 +589,10 @@ local function onServerTick()
 
         elseif siegeData.siegeState == SN.STATE_ACTIVE then
             local kills = siegeData.killsThisSiege or 0
+            local bonus = siegeData.bonusKills or 0
+            local totalKills = getTotalSiegeKills(siegeData)
             local target = siegeData.targetZombies or 0
-            local siegeCleared = target > 0 and kills >= target
+            local siegeCleared = target > 0 and totalKills >= target
 
             -- Dawn safety fallback: force end if it's past dawn hour
             -- Prevents permanently stuck ACTIVE state after server restart
@@ -588,7 +600,7 @@ local function onServerTick()
             if not siegeCleared and currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
                 dawnFallback = true
                 SN.log("DAWN FALLBACK: Forcing siege end at hour " .. currentHour
-                    .. " | Kills: " .. kills .. "/" .. target
+                    .. " | Kills: " .. kills .. " + " .. bonus .. " bonus/" .. target
                     .. " | Spawned: " .. (siegeData.spawnedThisSiege or 0))
             end
 
@@ -596,7 +608,7 @@ local function onServerTick()
                 siegeData.siegeState = SN.STATE_DAWN
                 dawnTicksRemaining = DAWN_DURATION_TICKS
                 if siegeCleared then
-                    SN.log("SIEGE CLEARED! Kills: " .. kills .. "/" .. target
+                    SN.log("SIEGE CLEARED! Kills: " .. kills .. " + " .. bonus .. " bonus/" .. target
                         .. " | Spawned: " .. siegeData.spawnedThisSiege)
                 end
                 if isServer() then
@@ -604,11 +616,12 @@ local function onServerTick()
                         state = SN.STATE_DAWN,
                         spawnedTotal = siegeData.spawnedThisSiege or 0,
                         killsThisSiege = kills,
+                        bonusKills = bonus,
                         specialKills = siegeData.specialKillsThisSiege or 0,
                         dawnFallback = dawnFallback,
                     })
                 end
-                SN.fireCallback("onSiegeEnd", siegeData.siegeCount, kills, siegeData.spawnedThisSiege or 0)
+                SN.fireCallback("onSiegeEnd", siegeData.siegeCount, totalKills, siegeData.spawnedThisSiege or 0)
             end
         end
     end

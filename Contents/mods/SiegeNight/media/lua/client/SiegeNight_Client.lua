@@ -21,6 +21,7 @@ local clientSiegeState = SN.STATE_IDLE
 local clientSiegeCount = 0
 local clientDirection = 0
 local clientKills = 0
+local clientBonusKills = 0
 local clientSpecialKills = 0
 local lastSyncedState = SN.STATE_IDLE
 
@@ -163,21 +164,30 @@ local function onEnterDawn()
     local player = getPlayer()
     if player then
         local kills = 0
+        local bonus = 0
         local siegeData = SN.getWorldData()
-        if siegeData then kills = siegeData.killsThisSiege or 0 end
+        if siegeData then
+            kills = siegeData.killsThisSiege or 0
+            bonus = siegeData.bonusKills or 0
+        end
+        -- Use client state if available (MP)
+        if clientKills > 0 then kills = clientKills end
+        if clientBonusKills > 0 then bonus = clientBonusKills end
+        local totalKills = kills + bonus
+        local bonusStr = bonus > 0 and (" +" .. bonus .. " attracted") or ""
         if clientDawnFallback then
-            -- Dawn forced the siege to end — player didn't clear the horde
-            if kills > 0 then
-                player:Say("Dawn... " .. kills .. " down, but some got away.")
+            if totalKills > 0 then
+                player:Say("Dawn... " .. kills .. " down" .. bonusStr .. ", but some got away.")
             else
                 trySpeech(DAWN_FALLBACK_SPEECHES, nil)
             end
-        elseif kills > 0 then
-            player:Say("It's over... " .. kills .. " of them dead.")
+        elseif totalKills > 0 then
+            player:Say("It's over... " .. kills .. " of them dead." .. (bonus > 0 and (" Plus " .. bonus .. " that wandered in.") or ""))
         else
             trySpeech(DAWN_SPEECHES, nil)
         end
     end
+    clientBonusKills = 0
     clientDawnFallback = false
 end
 
@@ -228,6 +238,7 @@ local function onServerCommand(module, command, args)
         if args["siegeCount"] then clientSiegeCount = args["siegeCount"] end
         if args["direction"] then clientDirection = args["direction"] end
         if args["killsThisSiege"] then clientKills = args["killsThisSiege"] end
+        if args["bonusKills"] then clientBonusKills = args["bonusKills"] end
         if args["specialKills"] then clientSpecialKills = args["specialKills"] end
         if args["totalWaves"] then clientTotalWaves = args["totalWaves"] end
         if args["dawnFallback"] then clientDawnFallback = args["dawnFallback"] end
