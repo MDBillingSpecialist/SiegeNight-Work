@@ -163,7 +163,7 @@ local function getSpawnPosition(player, primaryDir, usePrimary)
     local targetX = math.floor(baseX + perpX * spread)
     local targetY = math.floor(baseY + perpY * spread)
 
-    -- Pass 1: ideal spot
+    -- Pass 1: ideal spot (must be in a loaded cell so all players can see it)
     for attempt = 0, 30 do
         local tryX = targetX + ZombRand(11) - 5
         local tryY = targetY + ZombRand(11) - 5
@@ -171,6 +171,8 @@ local function getSpawnPosition(player, primaryDir, usePrimary)
         if square then
             local isSafe = SafeHouse and SafeHouse.getSafeHouse and SafeHouse.getSafeHouse(square) or nil
             if square:isFree(false) and square:isOutside() and isSafe == nil then
+                -- In MP, verify the chunk is loaded (getGridSquare returns nil for unloaded)
+                -- square existing means the cell IS loaded for the server
                 return tryX, tryY
             end
         end
@@ -264,14 +266,17 @@ local function applySpecialStats(zombie, specialType)
     zombie:getModData().SN_Siege = true
 
     -- Visual identification via outfit (safe to do immediately)
+    -- Store in moddata so processSpecialQueue can re-apply after makeInactive
     if specialType == "breaker" then
         local outfit = SN.BREAKER_OUTFITS[ZombRand(#SN.BREAKER_OUTFITS) + 1]
+        zombie:getModData().SN_Outfit = outfit
         zombie:dressInNamedOutfit(outfit)
     elseif specialType == "tank" then
         local outfit = SN.TANK_OUTFITS[ZombRand(#SN.TANK_OUTFITS) + 1]
+        zombie:getModData().SN_Outfit = outfit
         zombie:dressInNamedOutfit(outfit)
     end
-    -- Sprinters keep random outfit — surprise factor
+    -- Sprinters keep random outfit (SN_Outfit already set from spawnOneZombie)
 
     -- Queue the stat swap for next tick (one at a time)
     table.insert(specialQueue, { zombie = zombie, specialType = specialType })
@@ -313,6 +318,13 @@ local function processSpecialQueue()
     getSandboxOptions():set("ZombieLore.Strength", origStrength)
     getSandboxOptions():set("ZombieLore.Toughness", origToughness)
     getSandboxOptions():set("ZombieLore.Cognition", origCognition)
+
+    -- Re-apply outfit AFTER makeInactive cycle (makeInactive resets visual state)
+    -- This is the fix for naked zombies in MP — the outfit must be applied last
+    local outfitName = zombie:getModData().SN_Outfit
+    if outfitName then
+        zombie:dressInNamedOutfit(outfitName)
+    end
 end
 
 -- ==========================================
@@ -334,7 +346,9 @@ local function spawnOneZombie(player, primaryDir, specialType, healthMult)
     local zombies = addZombiesInOutfit(spawnX, spawnY, 0, 1, outfit, 50, false, false, false, false, false, false, healthMult)
     if zombies and zombies:size() > 0 then
         local zombie = zombies:get(0)
-        -- Fix: redundantly dress zombie server-side to prevent naked corpses on MP
+        -- Store outfit in moddata for re-application after makeInactive
+        zombie:getModData().SN_Outfit = outfit
+        -- Dress server-side immediately
         if isServer() then
             zombie:dressInNamedOutfit(outfit)
         end
@@ -780,7 +794,40 @@ local function onServerTick()
 
     local zombiesPerPlayer = math.max(1, math.floor(batchSize / #playerList))
 
+    -- MP visibility fix: if all players are within 100 tiles of each other,
+    -- spawn all zombies relative to the centroid so both clients have them loaded.
+    -- Otherwise fall back to per-player spawning.
+    local useSharedSpawn = false
+    local centroidPlayer = playerList[1]
+    if #playerList > 1 then
+        local allClose = true
+        for i = 1, #playerList do
+            for j = i + 1, #playerList do
+                local dx = playerList[i]:getX() - playerList[j]:getX()
+                local dy = playerList[i]:getY() - playerList[j]:getY()
+                if math.sqrt(dx*dx + dy*dy) > 100 then
+                    allClose = false
+                    break
+                end
+            end
+            if not allClose then break end
+        end
+        useSharedSpawn = allClose
+        if useSharedSpawn then
+            -- Pick the player closest to the centroid
+            local cx, cy = 0, 0
+            for _, p in ipairs(playerList) do cx = cx + p:getX(); cy = cy + p:getY() end
+            cx = cx / #playerList; cy = cy / #playerList
+            local bestDist = math.huge
+            for _, p in ipairs(playerList) do
+                local d = math.sqrt((p:getX()-cx)^2 + (p:getY()-cy)^2)
+                if d < bestDist then bestDist = d; centroidPlayer = p end
+            end
+        end
+    end
+
     for _, player in ipairs(playerList) do
+        local spawnTarget = useSharedSpawn and centroidPlayer or player
         for i = 1, zombiesPerPlayer do
             if siegeData.spawnedThisSiege >= siegeData.targetZombies then break end
             if phaseSpawnedCount >= phaseTargetCount then break end
@@ -797,7 +844,7 @@ local function onServerTick()
                 specialType = rollSpecialType(siegeData)
             end
 
-            if spawnOneZombie(player, siegeData.lastDirection, specialType, healthMult) then
+            if spawnOneZombie(spawnTarget, siegeData.lastDirection, specialType, healthMult) then
                 siegeData.spawnedThisSiege = siegeData.spawnedThisSiege + 1
                 phaseSpawnedCount = phaseSpawnedCount + 1
             end
