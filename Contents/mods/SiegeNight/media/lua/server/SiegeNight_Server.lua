@@ -558,23 +558,37 @@ local function onServerTick()
             end
 
         elseif siegeData.siegeState == SN.STATE_ACTIVE then
-            -- Siege ends when players kill the horde, not at dawn
             local kills = siegeData.killsThisSiege or 0
             local target = siegeData.targetZombies or 0
-            if target > 0 and kills >= target then
+            local siegeCleared = target > 0 and kills >= target
+
+            -- Dawn safety fallback: force end if it's past dawn hour
+            -- Prevents permanently stuck ACTIVE state after server restart
+            local dawnFallback = false
+            if not siegeCleared and currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
+                dawnFallback = true
+                SN.log("DAWN FALLBACK: Forcing siege end at hour " .. currentHour
+                    .. " | Kills: " .. kills .. "/" .. target
+                    .. " | Spawned: " .. (siegeData.spawnedThisSiege or 0))
+            end
+
+            if siegeCleared or dawnFallback then
                 siegeData.siegeState = SN.STATE_DAWN
                 dawnTicksRemaining = DAWN_DURATION_TICKS
-                SN.log("SIEGE CLEARED! Kills: " .. kills .. "/" .. target
-                    .. " | Spawned: " .. siegeData.spawnedThisSiege)
+                if siegeCleared then
+                    SN.log("SIEGE CLEARED! Kills: " .. kills .. "/" .. target
+                        .. " | Spawned: " .. siegeData.spawnedThisSiege)
+                end
                 if isServer() then
                     sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
                         state = SN.STATE_DAWN,
-                        spawnedTotal = siegeData.spawnedThisSiege,
+                        spawnedTotal = siegeData.spawnedThisSiege or 0,
                         killsThisSiege = kills,
                         specialKills = siegeData.specialKillsThisSiege or 0,
+                        dawnFallback = dawnFallback,
                     })
                 end
-                SN.fireCallback("onSiegeEnd", siegeData.siegeCount, kills, siegeData.spawnedThisSiege)
+                SN.fireCallback("onSiegeEnd", siegeData.siegeCount, kills, siegeData.spawnedThisSiege or 0)
             end
         end
     end

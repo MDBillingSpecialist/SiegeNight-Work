@@ -149,19 +149,36 @@ local function onEnterActive()
     end
 end
 
+local DAWN_FALLBACK_SPEECHES = {
+    "Dawn... the rest scattered.",
+    "Sunrise. Some of them are still out there...",
+    "It's morning. They're pulling back.",
+    "We made it to dawn... barely.",
+}
+
+local clientDawnFallback = false
+
 local function onEnterDawn()
-    SN.log("Client: Siege cleared!")
+    SN.log("Client: Siege ended!" .. (clientDawnFallback and " (dawn fallback)" or ""))
     local player = getPlayer()
     if player then
         local kills = 0
         local siegeData = SN.getWorldData()
         if siegeData then kills = siegeData.killsThisSiege or 0 end
-        if kills > 0 then
+        if clientDawnFallback then
+            -- Dawn forced the siege to end — player didn't clear the horde
+            if kills > 0 then
+                player:Say("Dawn... " .. kills .. " down, but some got away.")
+            else
+                trySpeech(DAWN_FALLBACK_SPEECHES, nil)
+            end
+        elseif kills > 0 then
             player:Say("It's over... " .. kills .. " of them dead.")
         else
             trySpeech(DAWN_SPEECHES, nil)
         end
     end
+    clientDawnFallback = false
 end
 
 local function onHordeComplete(targetZombies)
@@ -213,6 +230,7 @@ local function onServerCommand(module, command, args)
         if args["killsThisSiege"] then clientKills = args["killsThisSiege"] end
         if args["specialKills"] then clientSpecialKills = args["specialKills"] end
         if args["totalWaves"] then clientTotalWaves = args["totalWaves"] end
+        if args["dawnFallback"] then clientDawnFallback = args["dawnFallback"] end
         syncClientState(newState)
 
     elseif command == "WaveStart" then
