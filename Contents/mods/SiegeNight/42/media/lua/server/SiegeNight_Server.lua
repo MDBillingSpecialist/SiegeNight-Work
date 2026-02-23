@@ -527,6 +527,156 @@ local function enterActiveState(siegeData, reason, playerList)
     SN.fireCallback("onSiegeStart", siegeData.siegeCount, dir, siegeData.targetZombies)
 end
 
+-- ==========================================
+-- PLAYER COMMANDS (chat-triggered via sendClientCommand)
+-- Must be defined before onServerTick (Lua requires functions exist before call)
+-- ==========================================
+
+local voteState = {
+    active = false,
+    voters = {},
+    needed = 0,
+    startTick = 0,
+}
+local VOTE_TIMEOUT_TICKS = 30 * 60  -- 60 seconds at 30fps
+
+local function sendResponseToPlayer(player, message)
+    sendServerCommand(player, SN.CLIENT_MODULE, "CmdResponse", { message = message })
+end
+
+local function broadcastToAll(command, args)
+    sendServerCommand(SN.CLIENT_MODULE, command, args)
+end
+
+local function isPlayerAdmin(player)
+    if not isServer() then return true end
+    return player:isAccessLevel("admin") or player:isAccessLevel("moderator")
+end
+
+local function handleSiegeStart(player)
+    if isServer() and not isPlayerAdmin(player) then
+        sendResponseToPlayer(player, "Only admins can force-start a siege. Use /siege vote instead.")
+        return
+    end
+    local siegeData = SN.getWorldData()
+    if not siegeData then
+        sendResponseToPlayer(player, "Siege Night not ready yet.")
+        return
+    end
+    if siegeData.siegeState == SN.STATE_ACTIVE then
+        sendResponseToPlayer(player, "A siege is already active!")
+        return
+    end
+    local playerList = getPlayerList()
+    enterActiveState(siegeData, "manual trigger by " .. (player:getUsername() or "player"), playerList)
+    broadcastToAll("CmdResponse", { message = "Siege started by " .. (player:getUsername() or "player") .. "!" })
+    SN.log("MANUAL SIEGE triggered by " .. (player:getUsername() or "player"))
+end
+
+local function handleSiegeStop(player)
+    if isServer() and not isPlayerAdmin(player) then
+        sendResponseToPlayer(player, "Only admins can force-end a siege.")
+        return
+    end
+    local siegeData = SN.getWorldData()
+    if not siegeData then
+        sendResponseToPlayer(player, "Siege Night not ready yet.")
+        return
+    end
+    if siegeData.siegeState ~= SN.STATE_ACTIVE then
+        sendResponseToPlayer(player, "No siege is active.")
+        return
+    end
+    siegeData.siegeState = SN.STATE_DAWN
+    dawnTicksRemaining = DAWN_DURATION_TICKS
+    broadcastToAll("StateChange", {
+        state = SN.STATE_DAWN,
+        spawnedTotal = siegeData.spawnedThisSiege or 0,
+        killsThisSiege = siegeData.killsThisSiege or 0,
+        specialKills = siegeData.specialKillsThisSiege or 0,
+        dawnFallback = true,
+    })
+    broadcastToAll("CmdResponse", { message = "Siege ended by " .. (player:getUsername() or "player") .. "." })
+    SN.log("MANUAL SIEGE END by " .. (player:getUsername() or "player"))
+    SN.fireCallback("onSiegeEnd", siegeData.siegeCount, siegeData.killsThisSiege or 0, siegeData.spawnedThisSiege or 0)
+end
+
+local function handleSiegeVote(player)
+    local siegeData = SN.getWorldData()
+    if not siegeData then return end
+    if siegeData.siegeState == SN.STATE_ACTIVE then
+        sendResponseToPlayer(player, "A siege is already active!")
+        return
+    end
+    if voteState.active then
+        sendResponseToPlayer(player, "A vote is already in progress. Type /siege yes to vote.")
+        return
+    end
+    local playerList = getPlayerList()
+    local needed = math.max(1, math.ceil(#playerList / 2))
+    if #playerList <= 1 then
+        handleSiegeStart(player)
+        return
+    end
+    voteState.active = true
+    voteState.voters = {}
+    voteState.voters[player:getUsername() or "player"] = true
+    voteState.needed = needed
+    voteState.startTick = 0
+    broadcastToAll("VoteStarted", { needed = tostring(needed) })
+    broadcastToAll("VoteUpdate", { current = 1, needed = needed })
+    SN.log("SIEGE VOTE started by " .. (player:getUsername() or "player") .. ". Need " .. needed .. " votes.")
+end
+
+local function handleSiegeVoteYes(player)
+    if not voteState.active then
+        sendResponseToPlayer(player, "No vote in progress. Use /siege vote to start one.")
+        return
+    end
+    local name = player:getUsername() or "player"
+    if voteState.voters[name] then
+        sendResponseToPlayer(player, "You already voted!")
+        return
+    end
+    voteState.voters[name] = true
+    local count = 0
+    for _ in pairs(voteState.voters) do count = count + 1 end
+    broadcastToAll("VoteUpdate", { current = count, needed = voteState.needed })
+    if count >= voteState.needed then
+        voteState.active = false
+        broadcastToAll("VotePassed", {})
+        SN.log("SIEGE VOTE PASSED (" .. count .. "/" .. voteState.needed .. ")")
+        local siegeData = SN.getWorldData()
+        if siegeData then
+            local playerList = getPlayerList()
+            enterActiveState(siegeData, "vote passed", playerList)
+        end
+    end
+end
+
+local function checkVoteTimeout()
+    if not voteState.active then return end
+    voteState.startTick = (voteState.startTick or 0) + 1
+    if voteState.startTick >= VOTE_TIMEOUT_TICKS then
+        voteState.active = false
+        broadcastToAll("VoteFailed", {})
+        SN.log("SIEGE VOTE timed out.")
+    end
+end
+
+local function onClientCommand(module, command, player, args)
+    if module ~= SN.CLIENT_MODULE then return end
+    if command == "CmdSiegeStart" then
+        handleSiegeStart(player)
+    elseif command == "CmdSiegeStop" then
+        handleSiegeStop(player)
+    elseif command == "CmdSiegeVote" then
+        handleSiegeVote(player)
+    elseif command == "CmdSiegeVoteYes" then
+        handleSiegeVoteYes(player)
+    end
+end
+
 -- State machine is now fully tick-based (inside onServerTick).
 -- EveryHours is no longer used for state transitions.
 
@@ -907,181 +1057,6 @@ local function onGameTimeLoaded()
         end
     else
         SN.log("World data not available yet")
-    end
-end
-
--- ==========================================
--- PLAYER COMMANDS (chat-triggered via sendClientCommand)
--- ==========================================
-
-local voteState = {
-    active = false,
-    voters = {},
-    needed = 0,
-    startTick = 0,
-}
-local VOTE_TIMEOUT_TICKS = 30 * 60  -- 60 seconds at 30fps
-
-local function sendResponseToPlayer(player, message)
-    sendServerCommand(player, SN.CLIENT_MODULE, "CmdResponse", { message = message })
-end
-
-local function broadcastToAll(command, args)
-    sendServerCommand(SN.CLIENT_MODULE, command, args)
-end
-
-local function isPlayerAdmin(player)
-    -- In singleplayer, always admin. In MP, check access level.
-    if not isServer() then return true end
-    return player:isAccessLevel("admin") or player:isAccessLevel("moderator")
-end
-
-local function handleSiegeStart(player)
-    -- Admin-only in MP, anyone in SP
-    if isServer() and not isPlayerAdmin(player) then
-        sendResponseToPlayer(player, "Only admins can force-start a siege. Use /siege vote instead.")
-        return
-    end
-
-    local siegeData = SN.getWorldData()
-    if not siegeData then
-        sendResponseToPlayer(player, "Siege Night not ready yet.")
-        return
-    end
-
-    if siegeData.siegeState == SN.STATE_ACTIVE then
-        sendResponseToPlayer(player, "A siege is already active!")
-        return
-    end
-
-    -- Trigger siege
-    local playerList = getPlayerList()
-    enterActiveState(siegeData, "manual trigger by " .. (player:getUsername() or "player"), playerList)
-    broadcastToAll("CmdResponse", { message = "Siege started by " .. (player:getUsername() or "player") .. "!" })
-    SN.log("MANUAL SIEGE triggered by " .. (player:getUsername() or "player"))
-end
-
-local function handleSiegeStop(player)
-    if isServer() and not isPlayerAdmin(player) then
-        sendResponseToPlayer(player, "Only admins can force-end a siege.")
-        return
-    end
-
-    local siegeData = SN.getWorldData()
-    if not siegeData then
-        sendResponseToPlayer(player, "Siege Night not ready yet.")
-        return
-    end
-
-    if siegeData.siegeState ~= SN.STATE_ACTIVE then
-        sendResponseToPlayer(player, "No siege is active.")
-        return
-    end
-
-    -- Force to dawn
-    siegeData.siegeState = SN.STATE_DAWN
-    dawnTicksRemaining = DAWN_DURATION_TICKS
-    broadcastToAll("StateChange", {
-        state = SN.STATE_DAWN,
-        spawnedTotal = siegeData.spawnedThisSiege or 0,
-        killsThisSiege = siegeData.killsThisSiege or 0,
-        specialKills = siegeData.specialKillsThisSiege or 0,
-        dawnFallback = true,
-    })
-    broadcastToAll("CmdResponse", { message = "Siege ended by " .. (player:getUsername() or "player") .. "." })
-    SN.log("MANUAL SIEGE END by " .. (player:getUsername() or "player"))
-    SN.fireCallback("onSiegeEnd", siegeData.siegeCount, siegeData.killsThisSiege or 0, siegeData.spawnedThisSiege or 0)
-end
-
-local function handleSiegeVote(player)
-    local siegeData = SN.getWorldData()
-    if not siegeData then return end
-
-    if siegeData.siegeState == SN.STATE_ACTIVE then
-        sendResponseToPlayer(player, "A siege is already active!")
-        return
-    end
-
-    if voteState.active then
-        sendResponseToPlayer(player, "A vote is already in progress. Type /siege yes to vote.")
-        return
-    end
-
-    local playerList = getPlayerList()
-    -- Need majority: >50% of online players
-    local needed = math.max(1, math.ceil(#playerList / 2))
-
-    -- In singleplayer or if only 1 player, just start it
-    if #playerList <= 1 then
-        handleSiegeStart(player)
-        return
-    end
-
-    voteState.active = true
-    voteState.voters = {}
-    voteState.voters[player:getUsername() or "player"] = true  -- Voter auto-votes yes
-    voteState.needed = needed
-    voteState.startTick = 0  -- Will be set on next tick
-
-    broadcastToAll("VoteStarted", { needed = tostring(needed) })
-    broadcastToAll("VoteUpdate", { current = 1, needed = needed })
-    SN.log("SIEGE VOTE started by " .. (player:getUsername() or "player") .. ". Need " .. needed .. " votes.")
-end
-
-local function handleSiegeVoteYes(player)
-    if not voteState.active then
-        sendResponseToPlayer(player, "No vote in progress. Use /siege vote to start one.")
-        return
-    end
-
-    local name = player:getUsername() or "player"
-    if voteState.voters[name] then
-        sendResponseToPlayer(player, "You already voted!")
-        return
-    end
-
-    voteState.voters[name] = true
-    local count = 0
-    for _ in pairs(voteState.voters) do count = count + 1 end
-
-    broadcastToAll("VoteUpdate", { current = count, needed = voteState.needed })
-
-    if count >= voteState.needed then
-        -- Vote passed
-        voteState.active = false
-        broadcastToAll("VotePassed", {})
-        SN.log("SIEGE VOTE PASSED (" .. count .. "/" .. voteState.needed .. ")")
-        -- Start the siege
-        local siegeData = SN.getWorldData()
-        if siegeData then
-            local playerList = getPlayerList()
-            enterActiveState(siegeData, "vote passed", playerList)
-        end
-    end
-end
-
--- Vote timeout check (runs in onServerTick)
-local function checkVoteTimeout()
-    if not voteState.active then return end
-    voteState.startTick = (voteState.startTick or 0) + 1
-    if voteState.startTick >= VOTE_TIMEOUT_TICKS then
-        voteState.active = false
-        broadcastToAll("VoteFailed", {})
-        SN.log("SIEGE VOTE timed out.")
-    end
-end
-
-local function onClientCommand(module, command, player, args)
-    if module ~= SN.CLIENT_MODULE then return end
-
-    if command == "CmdSiegeStart" then
-        handleSiegeStart(player)
-    elseif command == "CmdSiegeStop" then
-        handleSiegeStop(player)
-    elseif command == "CmdSiegeVote" then
-        handleSiegeVote(player)
-    elseif command == "CmdSiegeVoteYes" then
-        handleSiegeVoteYes(player)
     end
 end
 
