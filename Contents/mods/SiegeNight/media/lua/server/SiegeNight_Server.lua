@@ -881,6 +881,30 @@ local function onGameTimeLoaded()
         SN.log("Siege count: " .. siegeData.siegeCount)
         SN.log("Total completed: " .. (siegeData.totalSiegesCompleted or 0))
         SN.log("All-time kills: " .. (siegeData.totalKillsAllTime or 0))
+
+        -- Safety: validate nextSiegeDay isn't stale after server restart
+        -- If nextSiegeDay is in the past AND state is IDLE, push it forward
+        -- Prevents the "siege reset to today" bug after server restart
+        local currentDay = math.floor(SN.getActualDay())
+        if siegeData.siegeState == SN.STATE_IDLE and siegeData.nextSiegeDay <= currentDay then
+            local freq = SN.getSandbox("FrequencyDays")
+            -- Push forward to the next valid siege day from today
+            while siegeData.nextSiegeDay <= currentDay do
+                siegeData.nextSiegeDay = siegeData.nextSiegeDay + freq
+            end
+            SN.log("STALE nextSiegeDay detected — advanced to day " .. siegeData.nextSiegeDay)
+        end
+
+        -- If server restarted mid-siege (state is ACTIVE/WARNING but it's daytime), reset to IDLE
+        if siegeData.siegeState == SN.STATE_ACTIVE or siegeData.siegeState == SN.STATE_WARNING then
+            local currentHour = SN.getCurrentHour()
+            if currentHour >= SN.DAWN_HOUR and currentHour < SN.WARNING_HOUR then
+                SN.log("Server restarted mid-siege during daytime — resetting to IDLE")
+                siegeData.siegeState = SN.STATE_IDLE
+                siegeData.nextSiegeDay = currentDay + SN.getSandbox("FrequencyDays")
+                SN.log("Next siege pushed to day " .. siegeData.nextSiegeDay)
+            end
+        end
     else
         SN.log("World data not available yet")
     end
