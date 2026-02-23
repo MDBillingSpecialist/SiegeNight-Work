@@ -25,6 +25,9 @@ local SN = require("SiegeNight_Shared")
 local dawnTicksRemaining = 0
 local DAWN_DURATION_TICKS = 300  -- ~10 seconds at 30fps
 
+-- When true, skip dawn fallback (manual/vote start during daytime)
+local forcedDaySiege = false
+
 -- Zombie attraction system
 local attractorTickCounter = 0
 local ATTRACTOR_INTERVAL = 150  -- ~5 seconds
@@ -205,7 +208,7 @@ local function getSpawnPosition(player, primaryDir, usePrimary)
         end
     end
 
-    -- Pass 3: random scatter — still enforce minimum distance
+    -- Pass 3: random scatter â€” still enforce minimum distance
     for fallback = 0, 30 do
         local range = math.floor(spawnDist * 0.7)
         local fx = math.floor(px + ZombRand(range * 2) - range)
@@ -260,7 +263,7 @@ local function shouldSpawnTank(siegeData)
     return ZombRand(100) < chance
 end
 
---- Queue for special zombie sandbox swaps — processed ONE per tick to avoid race conditions.
+--- Queue for special zombie sandbox swaps â€” processed ONE per tick to avoid race conditions.
 --- In MP, swapping global sandbox options affects ALL zombies on the server for that instant.
 --- By queuing and processing one per tick, we minimize the window of wrong values.
 local specialQueue = {}
@@ -329,7 +332,7 @@ local function processSpecialQueue()
     getSandboxOptions():set("ZombieLore.Cognition", origCognition)
 
     -- Re-apply outfit AFTER makeInactive cycle (makeInactive resets visual state)
-    -- This is the fix for naked zombies in MP — the outfit must be applied last
+    -- This is the fix for naked zombies in MP â€” the outfit must be applied last
     local outfitName = zombie:getModData().SN_Outfit
     if outfitName then
         zombie:dressInNamedOutfit(outfitName)
@@ -568,6 +571,12 @@ local function handleSiegeStart(player)
         return
     end
     local playerList = getPlayerList()
+    -- Allow daytime sieges when manually triggered or voted
+    local currentHour = SN.getCurrentHour()
+    if currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
+        forcedDaySiege = true
+        SN.log("Daytime siege â€” dawn fallback disabled for this siege")
+    end
     enterActiveState(siegeData, "manual trigger by " .. (player:getUsername() or "player"), playerList)
     broadcastToAll("CmdResponse", { message = "Siege started by " .. (player:getUsername() or "player") .. "!" })
     SN.log("MANUAL SIEGE triggered by " .. (player:getUsername() or "player"))
@@ -648,6 +657,11 @@ local function handleSiegeVoteYes(player)
         SN.log("SIEGE VOTE PASSED (" .. count .. "/" .. voteState.needed .. ")")
         local siegeData = SN.getWorldData()
         if siegeData then
+            local currentHour = SN.getCurrentHour()
+            if currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
+                forcedDaySiege = true
+                SN.log("Daytime vote siege â€” dawn fallback disabled for this siege")
+            end
             local playerList = getPlayerList()
             enterActiveState(siegeData, "vote passed", playerList)
         end
@@ -703,7 +717,7 @@ local function onServerTick()
 
     -- ==========================================
     -- TICK-BASED STATE CHECKS (every ~1 second)
-    -- Replaces EveryHours for reliability — EveryHours can miss if server lags
+    -- Replaces EveryHours for reliability â€” EveryHours can miss if server lags
     -- ==========================================
     stateCheckCounter = stateCheckCounter - 1
     if stateCheckCounter <= 0 then
@@ -746,8 +760,9 @@ local function onServerTick()
 
             -- Dawn safety fallback: force end if it's past dawn hour
             -- Prevents permanently stuck ACTIVE state after server restart
+            -- Skip if this was a manual/vote triggered daytime siege
             local dawnFallback = false
-            if not siegeCleared and currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
+            if not forcedDaySiege and not siegeCleared and currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
                 dawnFallback = true
                 SN.log("DAWN FALLBACK: Forcing siege end at hour " .. currentHour
                     .. " | Kills: " .. kills .. " + " .. bonus .. " bonus/" .. target
@@ -777,12 +792,12 @@ local function onServerTick()
     end
 
     -- ==========================================
-    -- DAWN → IDLE TRANSITION (tick-based delay)
+    -- DAWN â†’ IDLE TRANSITION (tick-based delay)
     -- ==========================================
     if siegeData.siegeState == SN.STATE_DAWN then
         if dawnTicksRemaining <= 0 then
             dawnTicksRemaining = DAWN_DURATION_TICKS
-            SN.debug("Dawn timer was not set — initializing to " .. DAWN_DURATION_TICKS)
+            SN.debug("Dawn timer was not set â€” initializing to " .. DAWN_DURATION_TICKS)
         else
             dawnTicksRemaining = dawnTicksRemaining - 1
             if dawnTicksRemaining <= 0 then
@@ -814,6 +829,7 @@ local function onServerTick()
                 end
 
                 siegeData.siegeState = SN.STATE_IDLE
+                forcedDaySiege = false
                 SN.log("Returned to IDLE. Next siege day: " .. siegeData.nextSiegeDay
                     .. " | History recorded: siege #" .. idx)
 
@@ -844,7 +860,7 @@ local function onServerTick()
             SN.debug("Sound attractor fired")
         end
 
-        -- Re-pathing (lightweight — just path + target, no setAttackedBy)
+        -- Re-pathing (lightweight â€” just path + target, no setAttackedBy)
         repathTickCounter = repathTickCounter - 1
         if repathTickCounter <= 0 then
             repathTickCounter = REPATH_INTERVAL
@@ -869,7 +885,7 @@ local function onServerTick()
     else
         if #siegeZombies > 0 then
             siegeZombies = {}
-            SN.debug("Siege ended — cleared zombie tracking list")
+            SN.debug("Siege ended â€” cleared zombie tracking list")
         end
     end
 
@@ -879,7 +895,7 @@ local function onServerTick()
     -- Detect debug-forced state transitions
     if siegeData.siegeState == SN.STATE_ACTIVE and lastServerState ~= SN.STATE_ACTIVE then
         if siegeData.spawnedThisSiege == 0 and spawnTickCounter > 1 then
-            SN.debug("Detected ACTIVE state entry — resetting spawn counter")
+            SN.debug("Detected ACTIVE state entry â€” resetting spawn counter")
             spawnTickCounter = 0
         end
         -- If wave structure wasn't built (debug-forced), build it now
@@ -896,7 +912,7 @@ local function onServerTick()
 
     if siegeData.siegeState ~= SN.STATE_ACTIVE then return end
     if siegeData.spawnedThisSiege >= siegeData.targetZombies then
-        -- All zombies spawned — notify clients once
+        -- All zombies spawned â€” notify clients once
         if not siegeData.hordeCompleteNotified then
             siegeData.hordeCompleteNotified = true
             SN.log("All " .. siegeData.targetZombies .. " zombies spawned. Fight to clear!")
@@ -1042,14 +1058,14 @@ local function onGameTimeLoaded()
             while siegeData.nextSiegeDay <= currentDay do
                 siegeData.nextSiegeDay = siegeData.nextSiegeDay + freq
             end
-            SN.log("STALE nextSiegeDay detected — advanced to day " .. siegeData.nextSiegeDay)
+            SN.log("STALE nextSiegeDay detected â€” advanced to day " .. siegeData.nextSiegeDay)
         end
 
         -- If server restarted mid-siege (state is ACTIVE/WARNING but it's daytime), reset to IDLE
         if siegeData.siegeState == SN.STATE_ACTIVE or siegeData.siegeState == SN.STATE_WARNING then
             local currentHour = SN.getCurrentHour()
             if currentHour >= SN.DAWN_HOUR and currentHour < SN.WARNING_HOUR then
-                SN.log("Server restarted mid-siege during daytime — resetting to IDLE")
+                SN.log("Server restarted mid-siege during daytime â€” resetting to IDLE")
                 siegeData.siegeState = SN.STATE_IDLE
                 siegeData.nextSiegeDay = currentDay + SN.getSandbox("FrequencyDays")
                 SN.log("Next siege pushed to day " .. siegeData.nextSiegeDay)
