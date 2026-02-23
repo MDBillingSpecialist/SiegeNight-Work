@@ -555,7 +555,7 @@ end
 
 local function handleSiegeStart(player)
     if isServer() and not isPlayerAdmin(player) then
-        sendResponseToPlayer(player, "Only admins can force-start a siege. Use /siege vote instead.")
+        sendResponseToPlayer(player, "Only admins can force-start a siege. Use !siege vote instead.")
         return
     end
     local siegeData = SN.getWorldData()
@@ -609,7 +609,7 @@ local function handleSiegeVote(player)
         return
     end
     if voteState.active then
-        sendResponseToPlayer(player, "A vote is already in progress. Type /siege yes to vote.")
+        sendResponseToPlayer(player, "A vote is already in progress. Type !siege yes to vote.")
         return
     end
     local playerList = getPlayerList()
@@ -630,7 +630,7 @@ end
 
 local function handleSiegeVoteYes(player)
     if not voteState.active then
-        sendResponseToPlayer(player, "No vote in progress. Use /siege vote to start one.")
+        sendResponseToPlayer(player, "No vote in progress. Use !siege vote to start one.")
         return
     end
     local name = player:getUsername() or "player"

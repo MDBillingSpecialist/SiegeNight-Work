@@ -123,7 +123,7 @@ local function onServerCommand(module, command, args)
 
     elseif command == "VoteStarted" then
         local needed = args and args["needed"] or "?"
-        player:Say("Siege vote started! Type /siege yes to vote. Need " .. needed .. " votes.")
+        player:Say("Siege vote started! Type !siege yes to vote. Need " .. needed .. " votes.")
 
     elseif command == "VoteUpdate" then
         local current = args and args["current"] or 0
@@ -148,4 +148,4 @@ if Events.OnServerCommand then
     Events.OnServerCommand.Add(onServerCommand)
 end
 
-SN.log("Commands module loaded. Type /siege for help.")
+SN.log("Commands module loaded. Type !siege for help.")
