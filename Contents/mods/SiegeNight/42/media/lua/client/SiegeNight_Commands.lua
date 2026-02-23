@@ -141,7 +141,11 @@ end
 -- ==========================================
 -- EVENT HOOKS
 -- ==========================================
-Events.OnChatMessage.Add(onChatMessage)
-Events.OnServerCommand.Add(onServerCommand)
+if Events.OnChatMessage then
+    Events.OnChatMessage.Add(onChatMessage)
+end
+if Events.OnServerCommand then
+    Events.OnServerCommand.Add(onServerCommand)
+end
 
 SN.log("Commands module loaded. Type /siege for help.")
