@@ -3,11 +3,11 @@
     Player-facing chat commands for Siege Night. CLIENT-SIDE.
 
     Commands (type in chat):
-    /siege start    — Start a siege immediately (admin only in MP)
-    /siege stop     — End the current siege (admin only in MP)
-    /siege status   — Show current siege state and stats
-    /siege next     — Show when the next siege is scheduled
-    /siege vote     — Start a vote to trigger a siege (any player)
+    !siege start    — Start a siege immediately (admin only in MP)
+    !siege stop     — End the current siege (admin only in MP)
+    !siege status   — Show current siege state and stats
+    !siege next     — Show when the next siege is scheduled
+    !siege vote     — Start a vote to trigger a siege (any player)
 ]]
 
 local SN = require("SiegeNight_Shared")
@@ -31,8 +31,8 @@ local function onChatMessage(chatMessage)
     local text = chatMessage:getText()
     if not text then return end
 
-    -- Only process /siege commands
-    if not luautils.stringStarts(text, "/siege") then return end
+    -- Only process !siege commands (using ! prefix because PZ intercepts / as built-in commands)
+    if not luautils.stringStarts(text, "!siege") then return end
 
     local player = getPlayer()
     if not player then return end
@@ -101,7 +101,7 @@ local function onChatMessage(chatMessage)
         chatMessage:setShowInChat(false)
 
     else
-        player:Say("Commands: /siege start, stop, status, next, vote")
+        player:Say("Commands: !siege start, stop, status, next, vote")
         chatMessage:setOverHeadSpeech(false)
         chatMessage:setShowInChat(false)
     end
