@@ -861,18 +861,42 @@ local function onServerTick()
     -- ZOMBIE ATTRACTION + RE-PATHING (during ACTIVE only)
     -- ==========================================
     if siegeData.siegeState == SN.STATE_ACTIVE then
-        -- Sound attractor
+        -- Build list of "active siege players" (alive and not recently respawned)
+        -- Players who died during siege get a grace period so the horde doesn't chase them to respawn
+        local siegePlayers = {}
+        local allPlayers = getPlayerList()
+        for _, player in ipairs(allPlayers) do
+            if player and player:isAlive() then
+                local pmd = player:getModData()
+                -- Track siege base position (where player was when siege started or first seen)
+                if not pmd.SN_SiegeBaseX then
+                    pmd.SN_SiegeBaseX = player:getX()
+                    pmd.SN_SiegeBaseY = player:getY()
+                end
+                -- If player moved more than 200 tiles from their siege base position,
+                -- they probably respawned — don't attract zombies to their new position
+                local dx = player:getX() - pmd.SN_SiegeBaseX
+                local dy = player:getY() - pmd.SN_SiegeBaseY
+                local distFromBase = math.sqrt(dx*dx + dy*dy)
+                if distFromBase < 200 then
+                    table.insert(siegePlayers, player)
+                else
+                    SN.debug("Player respawned far from base (" .. math.floor(distFromBase) .. " tiles) - skipping attraction")
+                end
+            end
+        end
+
+        -- Sound attractor (only for players still near their siege base)
         attractorTickCounter = attractorTickCounter - 1
         if attractorTickCounter <= 0 then
             attractorTickCounter = ATTRACTOR_INTERVAL
-            local attractPlayers = getPlayerList()
-            for _, player in ipairs(attractPlayers) do
+            for _, player in ipairs(siegePlayers) do
                 getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 50, 5)
             end
-            SN.debug("Sound attractor fired")
+            SN.debug("Sound attractor fired for " .. #siegePlayers .. "/" .. #allPlayers .. " players")
         end
 
-        -- Re-pathing (lightweight -  just path + target, no setAttackedBy)
+        -- Re-pathing (only toward players still at base)
         repathTickCounter = repathTickCounter - 1
         if repathTickCounter <= 0 then
             repathTickCounter = REPATH_INTERVAL
@@ -882,11 +906,18 @@ local function onServerTick()
                 local zombie = entry.zombie
                 local player = entry.player
                 local ok, dead = pcall(function() return zombie:isDead() end)
-                if ok and not dead and player and player:isAlive() then
-                    -- Sound-based re-path: zombies head toward player area but don't GPS lock
+                -- Only re-path if the assigned player is still in siegePlayers list
+                local playerActive = false
+                for _, sp in ipairs(siegePlayers) do
+                    if sp == player then playerActive = true; break end
+                end
+                if ok and not dead and playerActive then
                     zombie:pathToSound(player:getX(), player:getY(), 0)
                     table.insert(alive, entry)
                     repathed = repathed + 1
+                elseif ok and not dead then
+                    -- Zombie's player died/respawned — stop tracking, let zombie wander
+                    zombie:setTarget(nil)
                 end
             end
             siegeZombies = alive
@@ -896,6 +927,14 @@ local function onServerTick()
         end
     else
         if #siegeZombies > 0 then
+            -- Clear siege base positions on all players
+            local endPlayers = getPlayerList()
+            for _, p in ipairs(endPlayers) do
+                if p then
+                    p:getModData().SN_SiegeBaseX = nil
+                    p:getModData().SN_SiegeBaseY = nil
+                end
+            end
             -- Clear targeting on all surviving siege zombies so they revert to vanilla behavior
             for _, entry in ipairs(siegeZombies) do
                 local zombie = entry.zombie
