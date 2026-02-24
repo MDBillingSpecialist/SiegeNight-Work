@@ -1,6 +1,6 @@
 name=Siege Night
 id=SiegeNight
-description=<H1><ORANGE>SIEGE NIGHT v2.5.4
+description=<H1><ORANGE>SIEGE NIGHT v2.5.5
 description=<BR>
 description=<WHITE>Every night could be your last. Siege Night turns your base into a battleground.
 description=<BR>
@@ -22,5 +22,5 @@ description=- Debug tools (Numpad keys) for testing
 description=<BR>
 description=<RED>Report bugs on the Workshop page!
 poster=poster.png
-modversion=2.5.4
+modversion=2.5.5
 author=Unprocessable Entities
