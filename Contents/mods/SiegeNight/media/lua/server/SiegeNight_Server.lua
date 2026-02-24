@@ -34,7 +34,7 @@ local ATTRACTOR_INTERVAL = 150  -- ~5 seconds
 
 -- Siege zombie tracking for re-pathing
 local siegeZombies = {}
-local REPATH_INTERVAL = 150
+local REPATH_INTERVAL = 300  -- ~5 seconds between re-paths (was 150)
 local repathTickCounter = 0
 
 -- ==========================================
@@ -381,17 +381,14 @@ local function spawnOneZombie(player, primaryDir, specialType, healthMult)
         end
         applySpecialStats(zombie, specialType)
 
-        -- Full Bandits-style targeting combo
-        zombie:pathToCharacter(player)
-        zombie:setTarget(player)
-        zombie:setAttackedBy(player)
-        zombie:spottedNew(player, true)
-        zombie:addAggro(player, 1)
+        -- Soft targeting: sound-based pathing instead of GPS lock
+        -- Zombies head toward the player's area but can lose track, wander, get stuck on walls
+        zombie:pathToSound(player:getX(), player:getY(), 0)
 
         -- Tag as siege zombie
         zombie:getModData().SN_Siege = true
 
-        -- Sound attractor
+        -- Sound attractor (draws them toward player area naturally)
         getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 200, 10)
 
         -- Track for re-pathing
@@ -886,8 +883,8 @@ local function onServerTick()
                 local player = entry.player
                 local ok, dead = pcall(function() return zombie:isDead() end)
                 if ok and not dead and player and player:isAlive() then
-                    zombie:pathToCharacter(player)
-                    zombie:setTarget(player)
+                    -- Sound-based re-path: zombies head toward player area but don't GPS lock
+                    zombie:pathToSound(player:getX(), player:getY(), 0)
                     table.insert(alive, entry)
                     repathed = repathed + 1
                 end
