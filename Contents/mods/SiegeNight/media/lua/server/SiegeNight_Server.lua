@@ -896,8 +896,17 @@ local function onServerTick()
         end
     else
         if #siegeZombies > 0 then
+            -- Clear targeting on all surviving siege zombies so they revert to vanilla behavior
+            for _, entry in ipairs(siegeZombies) do
+                local zombie = entry.zombie
+                local ok, dead = pcall(function() return zombie:isDead() end)
+                if ok and not dead then
+                    zombie:setTarget(nil)
+                    zombie:getModData().SN_Siege = nil
+                end
+            end
             siegeZombies = {}
-    SN.debug("Siege ended - cleared zombie tracking list")
+            SN.debug("Siege ended - cleared zombie tracking and targeting")
         end
     end
 
