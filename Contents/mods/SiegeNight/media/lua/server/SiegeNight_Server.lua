@@ -57,9 +57,17 @@ local function onZombieDead(zombie)
     if not zombie then return end
 
     -- Re-apply outfit on death to prevent naked corpses in MP
+    -- Server-side re-dress ensures WornItems are populated for IsoDeadBody creation
     local md = zombie:getModData()
     if md and md.SN_Outfit then
         zombie:dressInNamedOutfit(md.SN_Outfit)
+        -- Also notify clients to re-dress on their end
+        if isServer() then
+            sendServerCommand(SN.CLIENT_MODULE, "RedressZombie", {
+                id = zombie:getOnlineID(),
+                outfit = md.SN_Outfit
+            })
+        end
     end
 
     local siegeData = SN.getWorldData()

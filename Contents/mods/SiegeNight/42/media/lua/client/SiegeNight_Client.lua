@@ -71,10 +71,10 @@ local DAWN_SPEECHES = {
 }
 
 local HORDE_COMPLETE_SPEECHES = {
-    "That's all of them — now kill every last one!",
+    "That's all of them -- now kill every last one!",
     "No more coming... finish them off!",
     "The full horde is here. Fight to live!",
-    "This is it — kill or be killed!",
+    "This is it -- kill or be killed!",
 }
 
 local BREAK_SPEECHES = {
@@ -192,7 +192,7 @@ local function onEnterDawn()
 end
 
 local function onHordeComplete(targetZombies)
-    SN.log("Client: Full horde has arrived — " .. (targetZombies or "?") .. " zombies")
+    SN.log("Client: Full horde has arrived -- " .. (targetZombies or "?") .. " zombies")
     playSiegeHorn()
     local player = getPlayer()
     if player then
@@ -266,6 +266,23 @@ local function onServerCommand(module, command, args)
     elseif command == "HordeComplete" then
         local targetZombies = args["targetZombies"] or 0
         onHordeComplete(targetZombies)
+
+    elseif command == "RedressZombie" then
+        -- Server says to re-dress a zombie that just died (naked corpse fix)
+        local onlineID = args["id"]
+        local outfit = args["outfit"]
+        if onlineID and outfit then
+            local zombies = getCell():getZombieList()
+            if zombies then
+                for i = 0, zombies:size() - 1 do
+                    local z = zombies:get(i)
+                    if z and z:getOnlineID() == onlineID then
+                        z:dressInNamedOutfit(outfit)
+                        break
+                    end
+                end
+            end
+        end
 
     elseif command == "MiniHorde" then
         local count = args["count"] or 0
@@ -352,11 +369,20 @@ local function onGameStart()
 end
 
 -- Re-apply outfit on zombie death to prevent naked corpses in MP
+-- In MP, IsoDeadBody is created from zombie's WornItems/ItemVisuals, not outfit name.
+-- dressInNamedOutfit only sets a template -- the individual items may not sync to the corpse.
+-- Fix: re-apply the outfit on death so the worn items are fresh when the corpse is created.
 local function onZombieDead(zombie)
     if not zombie then return end
     local md = zombie:getModData()
-    if md and md.SN_Outfit then
-        zombie:dressInNamedOutfit(md.SN_Outfit)
+    if not md or not md.SN_Outfit then return end
+
+    -- Re-dress forces PZ to populate WornItems from the outfit template
+    zombie:dressInNamedOutfit(md.SN_Outfit)
+
+    -- Force visual update on this client
+    if zombie.resetModelNextFrame then
+        zombie:resetModelNextFrame()
     end
 end
 
