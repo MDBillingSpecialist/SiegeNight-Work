@@ -55,11 +55,16 @@ local spawnTickCounter = 0     -- tick counter for spawn intervals
 -- Tracks both tagged siege zombies and untagged "attracted" kills
 local function onZombieDead(zombie)
     if not zombie then return end
+
+    -- Re-apply outfit on death to prevent naked corpses in MP
+    local md = zombie:getModData()
+    if md and md.SN_Outfit then
+        zombie:dressInNamedOutfit(md.SN_Outfit)
+    end
+
     local siegeData = SN.getWorldData()
     if not siegeData then return end
     if siegeData.siegeState ~= SN.STATE_ACTIVE then return end
-
-    local md = zombie:getModData()
     if md and md.SN_Siege then
         -- Tagged siege zombie
         siegeData.killsThisSiege = (siegeData.killsThisSiege or 0) + 1

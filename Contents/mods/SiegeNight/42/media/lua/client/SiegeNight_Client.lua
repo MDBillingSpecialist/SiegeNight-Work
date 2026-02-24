@@ -351,6 +351,15 @@ local function onGameStart()
     end
 end
 
+-- Re-apply outfit on zombie death to prevent naked corpses in MP
+local function onZombieDead(zombie)
+    if not zombie then return end
+    local md = zombie:getModData()
+    if md and md.SN_Outfit then
+        zombie:dressInNamedOutfit(md.SN_Outfit)
+    end
+end
+
 -- ==========================================
 -- EVENT HOOKS
 -- ==========================================
@@ -358,3 +367,4 @@ Events.OnGameStart.Add(onGameStart)
 Events.OnServerCommand.Add(onServerCommand)
 Events.OnTick.Add(onTick)
 Events.EveryHours.Add(onEveryHour)
+Events.OnZombieDead.Add(onZombieDead)
