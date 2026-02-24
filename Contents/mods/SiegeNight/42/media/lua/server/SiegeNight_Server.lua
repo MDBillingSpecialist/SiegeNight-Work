@@ -381,9 +381,8 @@ local function spawnOneZombie(player, primaryDir, specialType, healthMult)
         end
         applySpecialStats(zombie, specialType)
 
-        -- Soft targeting: sound-based pathing instead of GPS lock
-        -- Zombies head toward the player's area but can lose track, wander, get stuck on walls
-        zombie:pathToSound(player:getX(), player:getY(), 0)
+        -- No direct pathing — let zombies find players via sound attractors only
+        -- This respects their Cognition sandbox setting (Basic Navigation = shamble toward noise)
 
         -- Tag as siege zombie
         zombie:getModData().SN_Siege = true
@@ -883,8 +882,7 @@ local function onServerTick()
                 local player = entry.player
                 local ok, dead = pcall(function() return zombie:isDead() end)
                 if ok and not dead and player and player:isAlive() then
-                    -- Sound-based re-path: zombies head toward player area but don't GPS lock
-                    zombie:pathToSound(player:getX(), player:getY(), 0)
+                    -- No-op: zombies find players via periodic sound attractors only
                     table.insert(alive, entry)
                     repathed = repathed + 1
                 end
