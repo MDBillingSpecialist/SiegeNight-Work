@@ -28,6 +28,10 @@ local DAWN_DURATION_TICKS = 300  -- ~10 seconds at 30fps
 -- When true, skip dawn fallback (manual/vote start during daytime)
 local forcedDaySiege = false
 
+-- ModData sync to clients (for UI panel updates)
+local syncTickCounter = 0
+local SYNC_INTERVAL = 300  -- ~5 seconds between client syncs
+
 -- Zombie attraction system
 local attractorTickCounter = 0
 local ATTRACTOR_INTERVAL = 150  -- ~5 seconds
@@ -530,6 +534,7 @@ local function enterActiveState(siegeData, reason, playerList)
         .. " | players=" .. playerCount .. " estMult=" .. string.format("%.2f", estMult))
 
     if isServer() then
+        ModData.transmit("SiegeNight")
         sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
             state = SN.STATE_ACTIVE,
             siegeCount = siegeData.siegeCount,
@@ -610,6 +615,7 @@ local function handleSiegeStop(player)
     end
     siegeData.siegeState = SN.STATE_DAWN
     dawnTicksRemaining = DAWN_DURATION_TICKS
+    if isServer() then ModData.transmit("SiegeNight") end
     broadcastToAll("StateChange", {
         state = SN.STATE_DAWN,
         spawnedTotal = siegeData.spawnedThisSiege or 0,
@@ -726,6 +732,17 @@ local function onServerTick()
     -- ==========================================
     processSpecialQueue()
     checkVoteTimeout()
+
+    -- ==========================================
+    -- SYNC MODDATA TO CLIENTS (periodic)
+    -- ==========================================
+    syncTickCounter = syncTickCounter + 1
+    if syncTickCounter >= SYNC_INTERVAL then
+        syncTickCounter = 0
+        if isServer() then
+            ModData.transmit("SiegeNight")
+        end
+    end
 
     -- ==========================================
     -- TICK-BASED STATE CHECKS (every ~1 second)
@@ -846,6 +863,7 @@ local function onServerTick()
                     .. " | History recorded: siege #" .. idx)
 
                 if isServer() then
+                    ModData.transmit("SiegeNight")
                     sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
                         state = SN.STATE_IDLE,
                         nextSiegeDay = siegeData.nextSiegeDay,

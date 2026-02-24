@@ -304,13 +304,13 @@ function SN.initWorldData()
 end
 
 function SN.getWorldData()
-    if SN._worldData then return SN._worldData end
+    -- Always fetch fresh from ModData (no cache) so client gets server transmits
     local data = ModData.get("SiegeNight")
     if data then
         SN._worldData = data
         return data
     end
-    return nil
+    return SN._worldData
 end
 
 Events.OnInitGlobalModData.Add(SN.initWorldData)
