@@ -160,7 +160,7 @@ local function onEveryTenMinutes()
                     end
                 end
 
-                -- Generator detection
+                -- Generator detection (pcall-guarded: getGenerator may not exist in all PZ versions)
                 local cell = getWorld():getCell()
                 if cell then
                     local foundGenerator = false
@@ -168,9 +168,9 @@ local function onEveryTenMinutes()
                         if foundGenerator then break end
                         for gy = -3, 3 do
                             local sq = cell:getGridSquare(math.floor(px) + gx * 10, math.floor(py) + gy * 10, 0)
-                            if sq then
-                                local generator = sq:getGenerator()
-                                if generator and generator:isRunning() then
+                            if sq and sq.getGenerator then
+                                local okG, generator = pcall(sq.getGenerator, sq)
+                                if okG and generator and generator.isRunning and generator:isRunning() then
                                     addHeat(px, py, 15)
                                     foundGenerator = true
                                     break
