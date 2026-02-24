@@ -284,6 +284,25 @@ local function onServerCommand(module, command, args)
             end
         end
 
+    elseif command == "SyncSpecial" then
+        -- Server syncs special zombie stats to all clients (replaces makeInactive hack)
+        local onlineID = args["id"]
+        local health = args["health"]
+        local speedMod = args["speedMod"]
+        if onlineID then
+            local zombies = getCell():getZombieList()
+            if zombies then
+                for i = 0, zombies:size() - 1 do
+                    local z = zombies:get(i)
+                    if z and z:getOnlineID() == onlineID then
+                        if health then z:setHealth(health) end
+                        if speedMod then z:setSpeedMod(speedMod) end
+                        break
+                    end
+                end
+            end
+        end
+
     elseif command == "MiniHorde" then
         local count = args["count"] or 0
         local dir = args["direction"] or 0

@@ -307,8 +307,11 @@ local function applySpecialStats(zombie, specialType)
     table.insert(specialQueue, { zombie = zombie, specialType = specialType })
 end
 
---- Process ONE queued special zombie per tick. This keeps the sandbox-swap window
---- as short as possible and prevents race conditions with other mods.
+--- Process ONE queued special zombie per tick.
+--- Uses direct zombie API calls (setHealth, setSpeedMod) instead of the
+--- makeInactive sandbox-swap hack, which caused invisible zombies in MP
+--- because makeInactive(true)->makeInactive(false) desyncs the zombie
+--- from remote clients' network streams.
 local function processSpecialQueue()
     if #specialQueue == 0 then return end
 
@@ -320,36 +323,35 @@ local function processSpecialQueue()
     local ok, dead = pcall(function() return zombie:isDead() end)
     if not ok or dead then return end
 
-    local origSpeed = getSandboxOptions():getOptionByName("ZombieLore.Speed"):getValue()
-    local origStrength = getSandboxOptions():getOptionByName("ZombieLore.Strength"):getValue()
-    local origToughness = getSandboxOptions():getOptionByName("ZombieLore.Toughness"):getValue()
-    local origCognition = getSandboxOptions():getOptionByName("ZombieLore.Cognition"):getValue()
+    -- Direct stat manipulation (Bandits-style) -- no makeInactive needed
+    local healthMult = SN.getSandbox("TankHealthMultiplier") or 5.0
 
     if specialType == "sprinter" then
-        getSandboxOptions():set("ZombieLore.Speed", 1)
+        -- Fast zombie: boost speed
+        zombie:setSpeedMod(1)  -- 1 = sprinter speed
     elseif specialType == "breaker" then
-        getSandboxOptions():set("ZombieLore.Strength", 1)
-        getSandboxOptions():set("ZombieLore.Cognition", 1)
+        -- Strong zombie: boost health moderately
+        zombie:setHealth(2.0)
     elseif specialType == "tank" then
-        getSandboxOptions():set("ZombieLore.Toughness", 1)
-        getSandboxOptions():set("ZombieLore.Speed", 3)
-        getSandboxOptions():set("ZombieLore.Strength", 1)
+        -- Tough zombie: massive health, slightly slower
+        zombie:setHealth(healthMult)
+        zombie:setSpeedMod(0.7)  -- tanks are slower but beefy
     end
 
-    zombie:makeInactive(true)
-    zombie:makeInactive(false)
-
-    getSandboxOptions():set("ZombieLore.Speed", origSpeed)
-    getSandboxOptions():set("ZombieLore.Strength", origStrength)
-    getSandboxOptions():set("ZombieLore.Toughness", origToughness)
-    getSandboxOptions():set("ZombieLore.Cognition", origCognition)
-
-    -- Re-apply outfit AFTER makeInactive cycle (makeInactive resets visual state)
-    -- This is the fix for naked zombies in MP -  the outfit must be applied last
-    local outfitName = zombie:getModData().SN_Outfit
-    if outfitName then
-        zombie:dressInNamedOutfit(outfitName)
+    -- Sync health to all clients via server command
+    if isServer() then
+        local zid = zombie:getOnlineID()
+        if zid and zid > 0 then
+            sendServerCommand(SN.CLIENT_MODULE, "SyncSpecial", {
+                id = zid,
+                specialType = specialType,
+                health = zombie:getHealth(),
+                speedMod = specialType == "sprinter" and 1 or (specialType == "tank" and 0.7 or nil)
+            })
+        end
     end
+
+    SN.debug("Applied " .. specialType .. " stats directly (no makeInactive)")
 end
 
 -- ==========================================
