@@ -389,7 +389,7 @@ local function spawnOneZombie(player, primaryDir, specialType, healthMult)
         zombie:getModData().SN_Siege = true
 
         -- Sound attractor (draws them toward player area naturally)
-        getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 200, 10)
+        getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 50, 5)
 
         -- Track for re-pathing
         table.insert(siegeZombies, { zombie = zombie, player = player })
@@ -867,7 +867,7 @@ local function onServerTick()
             attractorTickCounter = ATTRACTOR_INTERVAL
             local attractPlayers = getPlayerList()
             for _, player in ipairs(attractPlayers) do
-                getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 200, 10)
+                getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 50, 5)
             end
             SN.debug("Sound attractor fired")
         end
