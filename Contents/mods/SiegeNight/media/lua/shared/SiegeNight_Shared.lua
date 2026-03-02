@@ -9,7 +9,7 @@ local SN = {}
 -- ==========================================
 -- VERSION
 -- ==========================================
-SN.VERSION = "2.5.5"
+SN.VERSION = "2.5.38"
 SN.MOD_ID = "SiegeNight"
 SN.CLIENT_MODULE = "SiegeNightModule"
 
@@ -26,10 +26,38 @@ SN.STATE_DAWN     = "DAWN"
 -- ==========================================
 -- TIME CONSTANTS
 -- ==========================================
-SN.DUSK_HOUR    = 20   -- 8 PM: siege starts
-SN.DAWN_HOUR    = 6    -- 6 AM: siege ends
-SN.WARNING_HOUR = 6    -- 6 AM: warnings begin on siege day
-SN.MIDNIGHT_RELATIVE_HOUR = 4  -- hours after dusk when midnight hits (20+4=24=midnight)
+SN.DUSK_HOUR    = 20   -- legacy default start hour
+SN.DAWN_HOUR    = 6    -- legacy default end hour
+SN.MIDNIGHT_RELATIVE_HOUR = 4  -- hours after siege start when midnight hits (default: 20+4=24)
+
+-- Sandbox-configurable siege window
+function SN.getSiegeStartHour()
+    local h = SN.getSandbox("SiegeStartHour")
+    if type(h) ~= "number" then return SN.DUSK_HOUR end
+    return math.floor(h)
+end
+
+function SN.getSiegeEndHour()
+    local h = SN.getSandbox("SiegeEndHour")
+    if type(h) ~= "number" then return SN.DAWN_HOUR end
+    return math.floor(h)
+end
+
+--- True if the given hour is inside the active siege window.
+--- Handles windows that cross midnight (ex 20 -> 6).
+function SN.isSiegeTime(hour)
+    local startH = SN.getSiegeStartHour()
+    local endH = SN.getSiegeEndHour()
+    hour = math.floor(hour or 0)
+    if startH == endH then
+        -- Degenerate case: treat as "always siege" (admin/testing). Not recommended.
+        return true
+    end
+    if startH < endH then
+        return hour >= startH and hour < endH
+    end
+    return hour >= startH or hour < endH
+end
 
 -- ==========================================
 -- DIRECTION CONSTANTS
@@ -82,12 +110,17 @@ SN.DEFAULTS = {
     Enabled = true,
     FirstSiegeDay = 3,
     FrequencyDays = 3,
+    FrequencyDaysMax = 0,  -- 0 = use FrequencyDays exactly. If > FrequencyDays, randomize between the two.
     BaseZombieCount = 75,
     ScalingMultiplier = 1.5,
     MaxZombies = 1500,
     WarningSignsEnabled = true,
     DirectionalAttacks = true,
     SpawnDistance = 45,
+    SharedSpawnRadius = 200,  -- MP: if players are within this many tiles, spawn near centroid so everyone sees the horde
+    SiegeStartHour = 20,
+    SiegeEndHour = 6,
+    WaveBreakSeconds = 0,  -- 0 = use size-based formula. Any value > 0 caps break duration to that many seconds.
     -- Special zombies
     SpecialZombiesEnabled = true,
     SpecialZombiesStartWeek = 3,
@@ -125,12 +158,24 @@ function SN.sandboxReady()
     return SandboxVars ~= nil and SandboxVars.SiegeNight ~= nil
 end
 
+--- Get the next siege frequency (supports random range)
+--- If FrequencyDaysMax > FrequencyDays, returns a random value between them.
+--- Otherwise returns FrequencyDays exactly (backward compatible).
+function SN.getNextFrequency()
+    local freqMin = SN.getSandbox("FrequencyDays")
+    local freqMax = SN.getSandbox("FrequencyDaysMax") or 0
+    if freqMax > freqMin then
+        return freqMin + ZombRand(freqMax - freqMin + 1)
+    end
+    return freqMin
+end
+
 -- ==========================================
 -- UTILITY FUNCTIONS
 -- ==========================================
 
 --- Get the actual in-game day number since the player started.
---- Uses getWorldAgeDays() directly — this is the number of days the world has existed.
+--- Uses getWorldAgeDays() directly  this is the number of days the world has existed.
 --- TimeSinceApo only affects the calendar month/day display, NOT world age.
 --- World age day 0 = the first day of the game regardless of apocalypse start date.
 function SN.getActualDay()
@@ -147,16 +192,33 @@ end
 
 function SN.getHoursSinceDusk()
     local hour = SN.getCurrentHour()
-    if hour >= SN.DUSK_HOUR then
-        return hour - SN.DUSK_HOUR
-    elseif hour < SN.DAWN_HOUR then
-        return (24 - SN.DUSK_HOUR) + hour
+    local startH = SN.getSiegeStartHour()
+    local endH = SN.getSiegeEndHour()
+
+    if not SN.isSiegeTime(hour) then
+        return 0
     end
-    return 0
+
+    if startH == endH then
+        return 0
+    end
+
+    if startH < endH then
+        return hour - startH
+    end
+
+    if hour >= startH then
+        return hour - startH
+    end
+    return (24 - startH) + hour
 end
 
 function SN.getNightDuration()
-    return (24 - SN.DUSK_HOUR) + SN.DAWN_HOUR
+    local startH = SN.getSiegeStartHour()
+    local endH = SN.getSiegeEndHour()
+    if startH == endH then return 24 end
+    if startH < endH then return endH - startH end
+    return (24 - startH) + endH
 end
 
 --- Calculate total siege zombies for a given siege number.
@@ -212,6 +274,7 @@ function SN.calculateWaveStructure(totalZombies)
         -- Also shorter breaks as the night progresses (urgency increases)
         -- Small siege (75): breaks ~3-5 min.  Large siege (500+): breaks ~5-10 min.
         -- Last wave has no break (final push til dawn).
+        -- WaveBreakSeconds sandbox option caps break duration if set > 0.
         local breakTicks = 0
         if i < numWaves then
             -- Base break: scales with total zombie count (more zombies = need more prep time)
@@ -221,6 +284,11 @@ function SN.calculateWaveStructure(totalZombies)
             breakTicks = math.floor(sizeBreakBase * decay)
             -- Clamp: min 2 min, max 10 min
             breakTicks = math.max(3600, math.min(18000, breakTicks))
+            -- Apply WaveBreakSeconds cap if set
+            local maxBreakSec = SN.getSandbox("WaveBreakSeconds")
+            if maxBreakSec and maxBreakSec > 0 then
+                breakTicks = math.min(breakTicks, maxBreakSec * 30)
+            end
         end
 
         table.insert(waves, {
@@ -278,6 +346,23 @@ end
 SN._worldData = nil
 
 function SN.initWorldData()
+    -- Only the server (or SP host) should create and initialize ModData.
+    -- Clients receive it via ModData.transmit() from the server.
+    -- If clients call getOrCreate, it shadows the server's persisted data with defaults.
+    local isSP = not isServer() and not isClient()
+    if isClient() and not isServer() then
+        -- Client: just try to read what the server sent
+        local data = ModData.get("SiegeNight")
+        if data then
+            SN._worldData = data
+            SN.log("Client received global ModData from server")
+        else
+            SN.log("Client: ModData not yet received from server (will sync shortly)")
+        end
+        return data
+    end
+
+    -- Server or SP: create and initialize
     local data = ModData.getOrCreate("SiegeNight")
     if data.siegeState == nil then data.siegeState = SN.STATE_IDLE end
     if data.siegeCount == nil then data.siegeCount = 0 end
@@ -299,7 +384,7 @@ function SN.initWorldData()
     -- Migrate: if save has old CLEANUP state, move to IDLE
     if data.siegeState == "CLEANUP" then data.siegeState = SN.STATE_IDLE end
     SN._worldData = data
-    SN.log("Global ModData initialized")
+    SN.log("Global ModData initialized (server/SP)")
     return data
 end
 
@@ -380,3 +465,5 @@ function SN.fireCallback(name, ...)
 end
 
 return SN
+
+
