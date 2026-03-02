@@ -1076,14 +1076,19 @@ local function onServerTick()
             -- they run until cleared, stopped, or hard timeout.
             local playerTriggered = isPlayerTriggered(siegeData)
             local dawnFallback = false
-            local w = getWorld()
-    local nowAge = 0
-    if w and w.getWorldAgeDays then
-        local ok, d = pcall(function() return w:getWorldAgeDays() end)
-        if ok and type(d) == "number" then
-            nowAge = d * 24
-        end
-    end
+
+            -- stopLockUntil is stored in "world-age hours" (days*24). Guarded for dedi safety.
+            local nowAge = 0
+            do
+                local w = getWorld()
+                if w and w.getWorldAgeDays then
+                    local ok, d = pcall(function() return w:getWorldAgeDays() end)
+                    if ok and type(d) == "number" then
+                        nowAge = d * 24
+                    end
+                end
+            end
+
             local stopLocked = siegeData.stopLockUntil and nowAge < siegeData.stopLockUntil
             if not playerTriggered and not siegeCleared and (not SN.isSiegeTime(currentHour)) and not stopLocked then
                 dawnFallback = true
@@ -1091,6 +1096,7 @@ local function onServerTick()
                     .. " | Kills: " .. kills .. " + " .. bonus .. " bonus/" .. target
                     .. " | Spawned: " .. (siegeData.spawnedThisSiege or 0))
             end
+
             -- Hard safety timeout: prevents any siege from running forever.
             -- Scheduled sieges: 12h. Player-triggered sieges: 23h.
             -- Use !siege stop to end a player-triggered siege early.
@@ -1106,21 +1112,21 @@ local function onServerTick()
             end
 
             if siegeCleared or dawnFallback then
-
                 if siegeData.ending then return end
+
                 siegeData.ending = true
                 siegeData.endSeq = (siegeData.endSeq or 0) + 1
                 siegeData.endSeqProcessed = nil
+                siegeData.dawnToIdleProcessed = false
+
                 siegeData.siegeState = SN.STATE_DAWN
-    dawnTicksRemaining = DAWN_DURATION_TICKS
-    siegeData.dawnToIdleProcessed = false
-    siegeData.endSeq = (siegeData.endSeq or 0) + 1
-    siegeData.endSeqProcessed = nil
-    siegeData.ending = true
+                dawnTicksRemaining = DAWN_DURATION_TICKS
+
                 if siegeCleared then
                     SN.log("SIEGE CLEARED! Kills: " .. kills .. " + " .. bonus .. " bonus/" .. target
                         .. " | Spawned: " .. siegeData.spawnedThisSiege)
                 end
+
                 if isServer() then
                     sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
                         state = SN.STATE_DAWN,
@@ -1131,75 +1137,82 @@ local function onServerTick()
                         dawnFallback = dawnFallback,
                     })
                 end
+
                 SN.fireCallback("onSiegeEnd", siegeData.siegeCount, totalKills, siegeData.spawnedThisSiege or 0)
             end
         end
     end
 
     -- ==========================================
-    -- DAWN --' IDLE TRANSITION (tick-based delay)
+    -- DAWN -> IDLE TRANSITION (tick-based delay)
     -- ==========================================
     if siegeData.siegeState == SN.STATE_DAWN then
         if dawnTicksRemaining <= 0 then
-            -- Guard: DAWN->IDLE should only run once per siege end
-            if siegeData.dawnToIdleProcessed then return end
-            if siegeData.endSeqProcessed == siegeData.endSeq then return end
-            siegeData.dawnToIdleProcessed = true
-            siegeData.endSeqProcessed = siegeData.endSeq
             dawnTicksRemaining = DAWN_DURATION_TICKS
-    SN.debug("Dawn timer was not set - initializing to " .. DAWN_DURATION_TICKS)
-        else
-            dawnTicksRemaining = dawnTicksRemaining - 1
-            if dawnTicksRemaining <= 0 then
-                -- Record siege history
-                siegeData.totalSiegesCompleted = (siegeData.totalSiegesCompleted or 0) + 1
-                siegeData.totalKillsAllTime = (siegeData.totalKillsAllTime or 0) + getTotalSiegeKills(siegeData)
-                local prevNextSiegeDay = siegeData.nextSiegeDay
-                local nextFreq = SN.getNextFrequency()
-                siegeData.nextSiegeDay = math.floor(SN.getActualDay()) + nextFreq
-                SN.log("DAWN->IDLE: nextSiegeDay " .. prevNextSiegeDay .. " -> " .. siegeData.nextSiegeDay
-                    .. " (currentDay=" .. math.floor(SN.getActualDay()) .. ", freq=" .. nextFreq .. ")")
+            SN.debug("Dawn timer was not set - initializing to " .. DAWN_DURATION_TICKS)
+            return
+        end
 
-                -- Store this siege's stats (capped to MAX_SIEGE_HISTORY)
-                local idx = siegeData.totalSiegesCompleted
-                siegeData["history_" .. idx .. "_kills"] = siegeData.killsThisSiege or 0
-                siegeData["history_" .. idx .. "_bonus"] = siegeData.bonusKills or 0
-                siegeData["history_" .. idx .. "_specials"] = siegeData.specialKillsThisSiege or 0
-                siegeData["history_" .. idx .. "_spawned"] = siegeData.spawnedThisSiege or 0
-                siegeData["history_" .. idx .. "_target"] = siegeData.targetZombies or 0
-                siegeData["history_" .. idx .. "_day"] = math.floor(SN.getActualDay())
-                siegeData["history_" .. idx .. "_dir"] = siegeData.lastDirection or -1
+        dawnTicksRemaining = dawnTicksRemaining - 1
+        if dawnTicksRemaining > 0 then return end
 
-                -- Prune old history beyond cap
-                local pruneIdx = idx - MAX_SIEGE_HISTORY
-                if pruneIdx > 0 then
-                    siegeData["history_" .. pruneIdx .. "_kills"] = nil
-                    siegeData["history_" .. pruneIdx .. "_bonus"] = nil
-                    siegeData["history_" .. pruneIdx .. "_specials"] = nil
-                    siegeData["history_" .. pruneIdx .. "_spawned"] = nil
-                    siegeData["history_" .. pruneIdx .. "_target"] = nil
-                    siegeData["history_" .. pruneIdx .. "_day"] = nil
-                    siegeData["history_" .. pruneIdx .. "_dir"] = nil
-                end
+        -- Guard: DAWN->IDLE should only run once per siege end
+        if siegeData.dawnToIdleProcessed then return end
+        if siegeData.endSeqProcessed == siegeData.endSeq then return end
 
-                siegeData.siegeState = SN.STATE_IDLE
-                siegeData.siegeTrigger = nil
-                siegeData.dawnToIdleProcessed = false
-                siegeData.ending = false
-                siegeData.stopLockUntil = nil
-                SN.log("Returned to IDLE. Next siege day: " .. siegeData.nextSiegeDay
-                    .. " | History recorded: siege #" .. idx)
+        siegeData.dawnToIdleProcessed = true
+        siegeData.endSeqProcessed = siegeData.endSeq
 
-                if isServer() then
-                    ModData.transmit("SiegeNight")
-                    sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
-                        state = SN.STATE_IDLE,
-                        nextSiegeDay = siegeData.nextSiegeDay,
-                        killsThisSiege = siegeData.killsThisSiege or 0,
-                        specialKills = siegeData.specialKillsThisSiege or 0,
-                    })
-                end
-            end
+        -- Record siege history
+        siegeData.totalSiegesCompleted = (siegeData.totalSiegesCompleted or 0) + 1
+        siegeData.totalKillsAllTime = (siegeData.totalKillsAllTime or 0) + getTotalSiegeKills(siegeData)
+
+        local prevNextSiegeDay = siegeData.nextSiegeDay
+        local nextFreq = SN.getNextFrequency()
+        siegeData.nextSiegeDay = math.floor(SN.getActualDay()) + nextFreq
+        SN.log("DAWN->IDLE: nextSiegeDay " .. prevNextSiegeDay .. " -> " .. siegeData.nextSiegeDay
+            .. " (currentDay=" .. math.floor(SN.getActualDay()) .. ", freq=" .. nextFreq .. ")")
+
+        -- Store this siege's stats (capped to MAX_SIEGE_HISTORY)
+        local idx = siegeData.totalSiegesCompleted
+        siegeData["history_" .. idx .. "_kills"] = siegeData.killsThisSiege or 0
+        siegeData["history_" .. idx .. "_bonus"] = siegeData.bonusKills or 0
+        siegeData["history_" .. idx .. "_specials"] = siegeData.specialKillsThisSiege or 0
+        siegeData["history_" .. idx .. "_spawned"] = siegeData.spawnedThisSiege or 0
+        siegeData["history_" .. idx .. "_target"] = siegeData.targetZombies or 0
+        siegeData["history_" .. idx .. "_day"] = math.floor(SN.getActualDay())
+        siegeData["history_" .. idx .. "_dir"] = siegeData.lastDirection or -1
+
+        -- Prune old history beyond cap
+        local pruneIdx = idx - MAX_SIEGE_HISTORY
+        if pruneIdx > 0 then
+            siegeData["history_" .. pruneIdx .. "_kills"] = nil
+            siegeData["history_" .. pruneIdx .. "_bonus"] = nil
+            siegeData["history_" .. pruneIdx .. "_specials"] = nil
+            siegeData["history_" .. pruneIdx .. "_spawned"] = nil
+            siegeData["history_" .. pruneIdx .. "_target"] = nil
+            siegeData["history_" .. pruneIdx .. "_day"] = nil
+            siegeData["history_" .. pruneIdx .. "_dir"] = nil
+        end
+
+        siegeData.siegeState = SN.STATE_IDLE
+        siegeData.siegeTrigger = nil
+        siegeData.ending = false
+        siegeData.stopLockUntil = nil
+
+        -- Keep this true for the rest of this tick cycle so we don't re-run the transition.
+        -- It will be reset on the next siege start.
+        SN.log("Returned to IDLE. Next siege day: " .. siegeData.nextSiegeDay
+            .. " | History recorded: siege #" .. idx)
+
+        if isServer() then
+            ModData.transmit("SiegeNight")
+            sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
+                state = SN.STATE_IDLE,
+                nextSiegeDay = siegeData.nextSiegeDay,
+                killsThisSiege = siegeData.killsThisSiege or 0,
+                specialKills = siegeData.specialKillsThisSiege or 0,
+            })
         end
     end
 
