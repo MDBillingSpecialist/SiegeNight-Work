@@ -1323,37 +1323,38 @@ local function onServerTick()
             repathTickCounter = REPATH_INTERVAL
             local alive = {}
             local repathed = 0
+
             for _, entry in ipairs(siegeZombies) do
                 local zombie = entry.zombie
                 local player = entry.player
+
                 local ok, dead = pcall(function() return zombie:isDead() end)
-                if not ok then
-                    -- zombie reference invalid, skip
-                elseif dead then
-                    -- already dead, don't re-add
-                else
-                        -- Only re-path if the assigned player is still in siegePlayers list
-                        local playerActive = false
-                        for _, sp in ipairs(siegePlayers) do
-                            if sp == player then playerActive = true; break end
-                        end
-                        if playerActive then
-                            -- downed zombies should not be re-pathed/aggroed (prevents unlootable panting bodies)
+                if ok and not dead then
+                    -- Only re-path if the assigned player is still in siegePlayers list
+                    local playerActive = false
+                    for _, sp in ipairs(siegePlayers) do
+                        if sp == player then playerActive = true; break end
+                    end
+
+                    if playerActive then
+                        -- downed zombies should not be re-pathed/aggroed (prevents unlootable panting bodies)
                         if isZombieOnGround(zombie) then
                             zombie:setTarget(nil)
                             table.insert(alive, entry)
                         else
-                            if entry.player then zombie:pathToSound(entry.player:getX(), entry.player:getY(), 0) end
+                            if player then
+                                zombie:pathToSound(player:getX(), player:getY(), 0)
+                            end
                             table.insert(alive, entry)
                             repathed = repathed + 1
                         end
-                        else
-                            -- Zombie's player died/respawned -- stop tracking, let zombie wander
-                            zombie:setTarget(nil)
-                        end
+                    else
+                        -- Zombie's player died/respawned -- stop tracking, let zombie wander
+                        zombie:setTarget(nil)
                     end
                 end
             end
+
             siegeZombies = alive
             if repathed > 0 then
                 SN.debug("Re-pathed " .. repathed .. " siege zombies (" .. #siegeZombies .. " tracked)")

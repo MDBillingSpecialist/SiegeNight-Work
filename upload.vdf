@@ -5,7 +5,7 @@
     "contentfolder"     "C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents"
     "previewfile"       "C:\Users\theth\Zomboid\Workshop\SiegeNight\preview.png"
     "descriptionfile"   "C:\Users\theth\Zomboid\Workshop\SiegeNight\description.txt"
-    "changenote"        "v2.5.40\n- Mini-hordes: noise threshold fallback now matches sandbox default (80) to prevent over-triggering before SandboxVars loads.\n- MP: move player-cluster/centroid helpers to module scope (avoids per-tick closure allocations).\n- Cleanup: remove shadowed siegeData in sync block."
+    "changenote"        "v2.5.41\n- Fix: dedicated server not loading (Lua parse error) - cleaned up repathing loop missing/misaligned end blocks."
 }
 
 
