@@ -5,7 +5,7 @@
     "contentfolder"     "C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents"
     "previewfile"       "C:\Users\theth\Zomboid\Workshop\SiegeNight\preview.png"
     "descriptionfile"   "C:\Users\theth\Zomboid\Workshop\SiegeNight\description.txt"
-    "changenote"        "v2.5.38\n- MP (dedicated): hotfix to prevent server-only logic from executing on clients (fixes \"invisible\" mini-hordes / per-player desync reports).\n- Mini-hordes: gunfire heat cap now resets each 10-minute tick (cap actually works).\n- MP: enabled special-zombie corpse sanity tick to clean up stuck \"downed\" specials.\n- Fixed: stray duplicate function declaration in server file."
+    "changenote"        "v2.5.39\n- Fixed: SiegeNight_Server.lua cleanup (removed duplicated/garbled DAWN/IDLE transition logic + indentation corruption that could cause parse errors on dedi).\n- MP (dedicated): server-only guards + mini-horde gunfire cap reset + special corpse sanity tick (from 2.5.38)."
 }
 
 
