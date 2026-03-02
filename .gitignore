@@ -1,0 +1,13 @@
+﻿
+
+# Local artifacts
+*.bak
+*.zip
+NOTES_UPLOAD.md
+UPLOAD-NOTES.md
+TINMAN_NOTES.md
+STATUS.md
+STABILIZATION-NOTES*.md
+STABILIZATION_NOTES_*.md
+description.txt.bak
+

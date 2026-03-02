@@ -8,7 +8,7 @@
     ===============================================================
     Numpad 0    = Toggle debug mode ON/OFF (always active)
     Numpad 1    = Dump full status to console + overhead text
-    Numpad 2    = Force next state transition (IDLE→WARNING→ACTIVE→DAWN→IDLE)
+    Numpad 2    = Force next state transition (IDLEWARNINGACTIVEDAWNIDLE)
     Numpad 3    = Force spawn 10 zombies around player
     Numpad 4    = Force spawn 1 of each special type (sprinter, breaker, tank)
     Numpad 5    = Force trigger a mini-horde
@@ -234,7 +234,7 @@ local function forceNextState()
     elseif oldState == SN.STATE_DAWN then
         -- Dawn goes directly to IDLE (no cleanup)
         siegeData.siegeState = SN.STATE_IDLE
-        siegeData.nextSiegeDay = math.floor(SN.getActualDay()) + SN.getSandbox("FrequencyDays")
+        siegeData.nextSiegeDay = math.floor(SN.getActualDay()) + SN.getNextFrequency()
     end
 
     SN.log("FORCE STATE: " .. oldState .. " -> " .. siegeData.siegeState)

@@ -28,6 +28,16 @@ option SiegeNight.FrequencyDays
 	translation = SN_FrequencyDays,
 }
 
+option SiegeNight.FrequencyDaysMax
+{
+	type = integer,
+	min = 0,
+	max = 365,
+	default = 0,
+	page = SiegeNight,
+	translation = SN_FrequencyDaysMax,
+}
+
 option SiegeNight.BaseZombieCount
 {
 	type = integer,
@@ -77,11 +87,52 @@ option SiegeNight.SpawnDistance
 {
 	type = integer,
 	min = 15,
-	max = 80,
+	max = 300,
 	default = 45,
 	page = SiegeNight,
 	translation = SN_SpawnDistance,
 }
+
+option SiegeNight.WaveBreakSeconds
+{
+	type = integer,
+	min = 0,
+	max = 600,
+	default = 0,
+	page = SiegeNight,
+	translation = SN_WaveBreakSeconds,
+}
+
+option SiegeNight.SiegeStartHour
+{
+	type = integer,
+	min = 0,
+	max = 23,
+	default = 20,
+	page = SiegeNight,
+	translation = SN_SiegeStartHour,
+}
+
+option SiegeNight.SiegeEndHour
+{
+	type = integer,
+	min = 0,
+	max = 23,
+	default = 6,
+	page = SiegeNight,
+	translation = SN_SiegeEndHour,
+}
+
+option SiegeNight.SharedSpawnRadius
+{
+    type = integer,
+    min = 50,
+    max = 500,
+    default = 200,
+    page = SiegeNight,
+    translation = SN_SharedSpawnRadius,
+}
+
 
 option SiegeNight.SpecialZombiesEnabled
 {
@@ -151,7 +202,7 @@ option SiegeNight.MiniHorde_NoiseThreshold
 	type = integer,
 	min = 10,
 	max = 200,
-	default = 50,
+	default = 80,
 	page = SiegeNightMiniHorde,
 	translation = SN_MiniHorde_NoiseThreshold,
 }

@@ -16,6 +16,10 @@
 ]]
 
 local SN = require("SiegeNight_Shared")
+
+-- Safety: this file must never run on MP clients.
+-- (Singleplayer has isClient()==false, so SP still works.)
+if isClient and isClient() then return end
 -- ==========================================
 -- LOCAL STATE
 -- ==========================================
@@ -979,7 +983,7 @@ local function onServerTick()
     corpseSanityCounter = corpseSanityCounter + 1
     if corpseSanityCounter >= CORPSE_SANITY_INTERVAL then
         corpseSanityCounter = 0
-        if siegeData.siegeState == SN.STATE_ACTIVE then
+        if siegeData.siegeState == SN.STATE_ACTIVE and #siegeZombies > 0 then
             specialCorpseSanityTick(siegeZombies)
         end
     end
@@ -1517,11 +1521,12 @@ local function onGameTimeLoaded()
         SN.log("Total completed: " .. (siegeData.totalSiegesCompleted or 0))
         SN.log("All-time kills: " .. (siegeData.totalKillsAllTime or 0))
 
-        -- Safety: validate nextSiegeDay isn''t stale after server restart
--- Only advance if it is truly in the past.
--- If nextSiegeDay == currentDay and we are IDLE, that is a valid "siege today" schedule.
-local currentDay = math.floor(SN.getActualDay())
-local stale = false
+        -- Safety: validate nextSiegeDay isn't stale after server restart
+        -- Only advance if it is truly in the past.
+        -- If nextSiegeDay == currentDay and we are IDLE, that is a valid "siege today" schedule.
+        if type(siegeData.nextSiegeDay) ~= "number" then siegeData.nextSiegeDay = 0 end
+        local currentDay = math.floor(SN.getActualDay())
+        local stale = false
 if siegeData.siegeState == SN.STATE_IDLE then
     stale = (siegeData.nextSiegeDay < currentDay)
 elseif siegeData.siegeState == SN.STATE_DAWN then

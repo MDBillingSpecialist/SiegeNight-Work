@@ -33,9 +33,31 @@ local activeSoundTimer = 0
 local speechCooldownTicks = 0
 local SPEECH_COOLDOWN = 900  -- ~30 seconds at 30fps
 
--- Wave tracking
+-- Wave tracking (exposed via SN for panel access)
 local clientCurrentWave = 0
 local clientTotalWaves = 0
+-- Sync retry: if ModData never arrives, re-request periodically
+local syncRetryTicks = 0
+local syncRetryInterval = 300  -- ~10 seconds at 30fps
+local syncRetryMax = 6  -- give up after ~60 seconds
+local syncRetryCount = 0
+-- Redress system removed: server-side dressInNamedOutfit was causing naked zombies.
+-- addZombiesInOutfit handles clothing correctly on the client side.
+-- Keeping RedressZombie handler as no-op for backward compat with older servers.
+
+-- Client-authoritative real-time data (updated by server commands, read by panel)
+-- These are more reliable than ModData on busy servers
+SN._clientRealtime = {
+    waveIndex = 0,
+    totalWaves = 0,
+    phase = SN.PHASE_WAVE,
+    spawnedThisSiege = 0,
+    killsThisSiege = 0,
+    bonusKills = 0,
+    specialKills = 0,
+    targetZombies = 0,
+    active = false,  -- true when we have command-sourced data
+}
 
 -- ==========================================
 -- SPEECH LINES
@@ -242,6 +264,28 @@ local function onServerCommand(module, command, args)
         if args["specialKills"] then clientSpecialKills = args["specialKills"] end
         if args["totalWaves"] then clientTotalWaves = args["totalWaves"] end
         if args["dawnFallback"] then clientDawnFallback = args["dawnFallback"] end
+        -- Update realtime tracker
+        local rt = SN._clientRealtime
+        if newState == SN.STATE_ACTIVE then
+            if args["totalWaves"] then rt.totalWaves = args["totalWaves"] end
+            if args["targetZombies"] then rt.targetZombies = args["targetZombies"] end
+            -- Only reset counters on fresh siege start (not on duplicate StateChange from reconnect)
+            if not rt.active then
+                rt.waveIndex = 1
+                rt.phase = SN.PHASE_WAVE
+                rt.spawnedThisSiege = 0
+                rt.killsThisSiege = 0
+                rt.bonusKills = 0
+                rt.specialKills = 0
+            end
+            rt.active = true
+        elseif newState == SN.STATE_DAWN or newState == SN.STATE_IDLE then
+            if args["killsThisSiege"] then rt.killsThisSiege = args["killsThisSiege"] end
+            if args["bonusKills"] then rt.bonusKills = args["bonusKills"] end
+            if args["specialKills"] then rt.specialKills = args["specialKills"] end
+            -- Keep active until IDLE so dawn summary panel still shows data
+            if newState == SN.STATE_IDLE then rt.active = false end
+        end
         syncClientState(newState)
 
     elseif command == "WaveStart" then
@@ -249,6 +293,11 @@ local function onServerCommand(module, command, args)
         local totalW = args["totalWaves"] or 0
         clientCurrentWave = waveIdx
         clientTotalWaves = totalW
+        -- Update realtime tracker (authoritative over ModData)
+        local rt = SN._clientRealtime
+        rt.waveIndex = waveIdx
+        rt.totalWaves = totalW
+        rt.phase = SN.PHASE_WAVE
         local player = getPlayer()
         if player then
             player:Say("Wave " .. waveIdx .. " of " .. totalW .. "!")
@@ -257,7 +306,12 @@ local function onServerCommand(module, command, args)
 
     elseif command == "WaveBreak" then
         local waveIdx = args["waveIndex"] or 0
+        local breakSeconds = args["breakSeconds"] or 0
         clientCurrentWave = waveIdx
+        -- Update realtime tracker (authoritative over ModData)
+        local rt = SN._clientRealtime
+        rt.waveIndex = waveIdx
+        rt.phase = SN.PHASE_BREAK
         local player = getPlayer()
         if player then
             trySpeech(BREAK_SPEECHES, nil)
@@ -265,24 +319,12 @@ local function onServerCommand(module, command, args)
 
     elseif command == "HordeComplete" then
         local targetZombies = args["targetZombies"] or 0
+        SN._clientRealtime.spawnedThisSiege = targetZombies  -- all spawned
         onHordeComplete(targetZombies)
 
     elseif command == "RedressZombie" then
-        -- Server says to re-dress a zombie that just died (naked corpse fix)
-        local onlineID = args["id"]
-        local outfit = args["outfit"]
-        if onlineID and outfit then
-            local zombies = getCell():getZombieList()
-            if zombies then
-                for i = 0, zombies:size() - 1 do
-                    local z = zombies:get(i)
-                    if z and z:getOnlineID() == onlineID then
-                        z:dressInNamedOutfit(outfit)
-                        break
-                    end
-                end
-            end
-        end
+        -- No-op: kept for backward compat. Server-side dressInNamedOutfit was causing
+        -- naked zombies by overwriting client visuals. addZombiesInOutfit handles it.
 
     elseif command == "SyncSpecial" then
         -- Server syncs special zombie stats to all clients (replaces makeInactive hack)
@@ -302,6 +344,89 @@ local function onServerCommand(module, command, args)
                 end
             end
         end
+
+    
+    elseif command == "DressZombie" then
+        local onlineID = args["id"]
+        local outfit = args["outfit"]
+        if onlineID and outfit then
+            local zombies = getCell():getZombieList()
+            if zombies then
+                for i = 0, zombies:size() - 1 do
+                    local z = zombies:get(i)
+                    if z and z:getOnlineID() == onlineID then
+                        if z.dressInNamedOutfit then
+                            pcall(function() z:dressInNamedOutfit(outfit) end)
+                        end
+                        break
+                    end
+                end
+            end
+        end
+
+    elseif command == "SyncAllStats" then
+        -- Server pushed full stats -- write directly into ModData so panel reads them
+        local siegeData = SN.getWorldData()
+        if not siegeData then
+            -- Force create if ModData wasn't received yet
+            siegeData = ModData.getOrCreate("SiegeNight")
+            SN._worldData = siegeData
+        end
+        if args["siegeState"] then siegeData.siegeState = args["siegeState"] end
+        if args["siegeCount"] then siegeData.siegeCount = args["siegeCount"] end
+        if args["nextSiegeDay"] then siegeData.nextSiegeDay = args["nextSiegeDay"] end
+        if args["totalSiegesCompleted"] then siegeData.totalSiegesCompleted = args["totalSiegesCompleted"] end
+        if args["totalKillsAllTime"] then siegeData.totalKillsAllTime = args["totalKillsAllTime"] end
+        if args["killsThisSiege"] then siegeData.killsThisSiege = args["killsThisSiege"] end
+        if args["bonusKills"] then siegeData.bonusKills = args["bonusKills"] end
+        if args["specialKillsThisSiege"] then siegeData.specialKillsThisSiege = args["specialKillsThisSiege"] end
+        if args["spawnedThisSiege"] then siegeData.spawnedThisSiege = args["spawnedThisSiege"] end
+        if args["targetZombies"] then siegeData.targetZombies = args["targetZombies"] end
+        if args["lastDirection"] then siegeData.lastDirection = args["lastDirection"] end
+        if args["currentWaveIndex"] then siegeData.currentWaveIndex = args["currentWaveIndex"] end
+        if args["currentPhase"] then siegeData.currentPhase = args["currentPhase"] end
+        -- Sync history entries
+        local totalCompleted = args["totalSiegesCompleted"] or 0
+        for idx = 1, totalCompleted do
+            local prefix = "history_" .. idx .. "_"
+            if args[prefix .. "kills"] then siegeData[prefix .. "kills"] = args[prefix .. "kills"] end
+            if args[prefix .. "bonus"] then siegeData[prefix .. "bonus"] = args[prefix .. "bonus"] end
+            if args[prefix .. "specials"] then siegeData[prefix .. "specials"] = args[prefix .. "specials"] end
+            if args[prefix .. "spawned"] then siegeData[prefix .. "spawned"] = args[prefix .. "spawned"] end
+            if args[prefix .. "target"] then siegeData[prefix .. "target"] = args[prefix .. "target"] end
+            if args[prefix .. "day"] then siegeData[prefix .. "day"] = args[prefix .. "day"] end
+            if args[prefix .. "dir"] then siegeData[prefix .. "dir"] = args[prefix .. "dir"] end
+        end
+        SN.log("Received full stats sync from server: siegeCount=" .. (args["siegeCount"] or "?")
+            .. " totalCompleted=" .. (args["totalSiegesCompleted"] or "?")
+            .. " totalKills=" .. (args["totalKillsAllTime"] or "?")
+            .. " nextSiegeDay=" .. (args["nextSiegeDay"] or "?"))
+        -- Update realtime tracker from full sync
+        local rt = SN._clientRealtime
+        if args["currentWaveIndex"] then rt.waveIndex = args["currentWaveIndex"] end
+        if args["currentPhase"] then rt.phase = args["currentPhase"] end
+        if args["spawnedThisSiege"] then rt.spawnedThisSiege = args["spawnedThisSiege"] end
+        if args["killsThisSiege"] then rt.killsThisSiege = args["killsThisSiege"] end
+        if args["bonusKills"] then rt.bonusKills = args["bonusKills"] end
+        if args["specialKillsThisSiege"] then rt.specialKills = args["specialKillsThisSiege"] end
+        if args["targetZombies"] then rt.targetZombies = args["targetZombies"] end
+        if args["siegeState"] == SN.STATE_ACTIVE then rt.active = true end
+        -- Also sync client state
+        if args["siegeState"] then
+            syncClientState(args["siegeState"])
+        end
+
+    elseif command == "SiegeTick" then
+        -- Periodic real-time update from server (more reliable than ModData.transmit)
+        local rt = SN._clientRealtime
+        rt.active = true
+        if args["spawnedThisSiege"] then rt.spawnedThisSiege = args["spawnedThisSiege"] end
+        if args["killsThisSiege"] then rt.killsThisSiege = args["killsThisSiege"] end
+        if args["bonusKills"] then rt.bonusKills = args["bonusKills"] end
+        if args["specialKills"] then rt.specialKills = args["specialKills"] end
+        if args["currentWaveIndex"] then rt.waveIndex = args["currentWaveIndex"] end
+        if args["currentPhase"] then rt.phase = args["currentPhase"] end
+        if args["targetZombies"] then rt.targetZombies = args["targetZombies"] end
 
     elseif command == "MiniHorde" then
         local count = args["count"] or 0
@@ -325,6 +450,24 @@ local function onTick()
     -- Decrement speech cooldown
     if speechCooldownTicks > 0 then
         speechCooldownTicks = speechCooldownTicks - 1
+    end
+
+    -- Redress queue removed: was causing naked zombies, not fixing them.
+
+    -- Sync retry: if panel is still "Loading..." (no ModData), keep requesting
+    if isClient() and syncRetryCount < syncRetryMax then
+        local siegeData = SN.getWorldData()
+        if not siegeData or not siegeData.siegeState then
+            syncRetryTicks = syncRetryTicks + 1
+            if syncRetryTicks >= syncRetryInterval then
+                syncRetryTicks = 0
+                syncRetryCount = syncRetryCount + 1
+                sendClientCommand(player, SN.CLIENT_MODULE, "CmdRequestSync", {})
+                SN.log("Sync retry " .. syncRetryCount .. "/" .. syncRetryMax .. " (ModData not received yet)")
+            end
+        else
+            syncRetryCount = syncRetryMax  -- got data, stop retrying
+        end
     end
 
     -- SP: mirror server world data state directly
@@ -379,30 +522,24 @@ local function onGameStart()
     SN.log("Client module loaded. Version " .. SN.VERSION)
 
     local siegeData = SN.getWorldData()
-    if not siegeData then return end
-    if siegeData.siegeState ~= SN.STATE_IDLE then
+    if siegeData and siegeData.siegeState ~= SN.STATE_IDLE then
         clientSiegeCount = siegeData.siegeCount
         syncClientState(siegeData.siegeState)
         SN.log("Loaded into active siege state: " .. siegeData.siegeState)
     end
+
+    -- Request full stats sync from server (belt-and-suspenders for ModData sync issues)
+    local player = getPlayer()
+    if player and isClient() then
+        sendClientCommand(player, SN.CLIENT_MODULE, "CmdRequestSync", {})
+        SN.log("Requested stats sync from server")
+    end
 end
 
--- Re-apply outfit on zombie death to prevent naked corpses in MP
--- In MP, IsoDeadBody is created from zombie's WornItems/ItemVisuals, not outfit name.
--- dressInNamedOutfit only sets a template -- the individual items may not sync to the corpse.
--- Fix: re-apply the outfit on death so the worn items are fresh when the corpse is created.
+-- On zombie death: no redress needed. addZombiesInOutfit handles clothing,
+-- and corpses inherit visuals from the zombie's client-side model automatically.
 local function onZombieDead(zombie)
-    if not zombie then return end
-    local md = zombie:getModData()
-    if not md or not md.SN_Outfit then return end
-
-    -- Re-dress forces PZ to populate WornItems from the outfit template
-    zombie:dressInNamedOutfit(md.SN_Outfit)
-
-    -- Force visual update on this client
-    if zombie.resetModelNextFrame then
-        zombie:resetModelNextFrame()
-    end
+    -- Intentionally empty for clothing. Kill tracking is handled server-side.
 end
 
 -- ==========================================
@@ -413,3 +550,4 @@ Events.OnServerCommand.Add(onServerCommand)
 Events.OnTick.Add(onTick)
 Events.EveryHours.Add(onEveryHour)
 Events.OnZombieDead.Add(onZombieDead)
+

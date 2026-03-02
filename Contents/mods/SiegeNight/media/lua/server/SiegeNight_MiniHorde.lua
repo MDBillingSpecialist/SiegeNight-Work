@@ -25,6 +25,10 @@
 
 local SN = require("SiegeNight_Shared")
 
+-- Safety: this file must never run on MP clients.
+-- (Singleplayer has isClient()==false, so SP still works.)
+if isClient and isClient() then return end
+
 -- ==========================================
 -- NOISE HEAT GRID
 -- ==========================================
@@ -134,15 +138,8 @@ local function onWeaponSwing(character, handWeapon)
     if scriptItem and scriptItem:getAmmoType() then
         local px, py = character:getX(), character:getY()
         if type(px) == "number" and type(py) == "number" then
-            do
-        local add = 10
-        if SN_MH_GunfireHeatThisTick >= SN_MH_MaxGunfireHeatPerTick then add = 0 end
-        if SN_MH_GunfireHeatThisTick + add > SN_MH_MaxGunfireHeatPerTick then add = SN_MH_MaxGunfireHeatPerTick - SN_MH_GunfireHeatThisTick end
-        if add > 0 then
-            SN_MH_GunfireHeatThisTick = SN_MH_GunfireHeatThisTick + add
-            addHeat(px, py, add)
-        end
-    end
+            -- Gunfire heat is capped per 10-minute tick inside addHeat(source='gunfire')
+            addHeat(px, py, 10, "gunfire")
             SN.debug("Gunfire detected from " .. tostring(character:getUsername() or "player"))
         end
     end

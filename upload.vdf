@@ -1,0 +1,13 @@
+"workshopitem"
+{
+    "appid"             "108600"
+    "publishedfileid"   "3669589584"
+    "contentfolder"     "C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents"
+    "previewfile"       "C:\Users\theth\Zomboid\Workshop\SiegeNight\preview.png"
+    "descriptionfile"   "C:\Users\theth\Zomboid\Workshop\SiegeNight\description.txt"
+    "changenote"        "v2.5.38\n- MP (dedicated): hotfix to prevent server-only logic from executing on clients (fixes \"invisible\" mini-hordes / per-player desync reports).\n- Mini-hordes: gunfire heat cap now resets each 10-minute tick (cap actually works).\n- MP: enabled special-zombie corpse sanity tick to clean up stuck \"downed\" specials.\n- Fixed: stray duplicate function declaration in server file."
+}
+
+
+
+

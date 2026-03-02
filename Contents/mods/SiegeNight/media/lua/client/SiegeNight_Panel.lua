@@ -25,7 +25,7 @@ local function ensureAddCharacterPageTab()
 
     -- ISCharacterInfoWindow must be loaded by now (OnGameStart guarantees this)
     if not ISCharacterInfoWindow then
-        SN.log("WARNING: ISCharacterInfoWindow not found — panel tab will not register")
+        SN.log("WARNING: ISCharacterInfoWindow not found  panel tab will not register")
         return
     end
 
@@ -115,6 +115,21 @@ local C_YELLOW  = {r=1.0, g=1.0, b=0.3}
 local C_BLUE    = {r=0.5, g=0.7, b=1.0}
 
 -- ==========================================
+-- HELPERS
+-- ==========================================
+
+--- Pick realtime value over ModData. Can't use Lua and/or idiom because 0 is falsy!
+--- @param useRT boolean whether realtime data is active
+--- @param rtField any value from _clientRealtime
+--- @param mdField any value from ModData
+--- @return any the best available value, or 0
+local function rtVal(useRT, rtField, mdField)
+    if useRT and rtField ~= nil then return rtField end
+    if mdField ~= nil then return mdField end
+    return 0
+end
+
+-- ==========================================
 -- RENDER
 -- ==========================================
 
@@ -190,6 +205,10 @@ function ISSiegeNightPanel:render()
     self:drawText(tostring(siegeData.siegeCount or 0), col2, y, C_WHITE.r, C_WHITE.g, C_WHITE.b, 1.0, font)
     y = y + fh + 4
 
+    -- Client realtime data (prefer over ModData in MP -- ModData can be stale on busy servers)
+    local rt = SN._clientRealtime
+    local useRealtime = rt and rt.active and isClient()
+
     -- ---- ACTIVE SIEGE DETAILS ----
     if state == SN.STATE_ACTIVE or state == SN.STATE_DAWN then
         -- Separator
@@ -209,8 +228,8 @@ function ISSiegeNightPanel:render()
         y = y + fh
 
         -- Spawn progress
-        local spawned = siegeData.spawnedThisSiege or 0
-        local target = siegeData.targetZombies or 0
+        local spawned = rtVal(useRealtime, rt.spawnedThisSiege, siegeData.spawnedThisSiege)
+        local target = rtVal(useRealtime, rt.targetZombies, siegeData.targetZombies)
         local pct = target > 0 and math.floor(spawned / target * 100) or 0
         self:drawText("Spawned:", x, y, C_GREY.r, C_GREY.g, C_GREY.b, 1.0, font)
         self:drawText(spawned .. " / " .. target .. "  (" .. pct .. "%)", col2, y, C_WHITE.r, C_WHITE.g, C_WHITE.b, 1.0, font)
@@ -229,9 +248,10 @@ function ISSiegeNightPanel:render()
             y = y + barH + 4
         end
 
-        -- Wave info
-        local waveIdx = siegeData.currentWaveIndex or 0
-        local phase = siegeData.currentPhase or "?"
+        -- Wave info (prefer client realtime data in MP)
+        local waveIdx = rtVal(useRealtime, rt.waveIndex, siegeData.currentWaveIndex)
+        local phase = rtVal(useRealtime, rt.phase, siegeData.currentPhase)
+        if phase == 0 then phase = "?" end
         local phaseColor = C_WHITE
         if phase == SN.PHASE_WAVE then phaseColor = C_RED
         elseif phase == SN.PHASE_TRICKLE then phaseColor = C_ORANGE
@@ -254,9 +274,9 @@ function ISSiegeNightPanel:render()
     self:drawText("Kill Tracker", x, y, C_ORANGE.r, C_ORANGE.g, C_ORANGE.b, 1.0, fontMed)
     y = y + fhMed + 4
 
-    local kills = siegeData.killsThisSiege or 0
-    local bonus = siegeData.bonusKills or 0
-    local specKills = siegeData.specialKillsThisSiege or 0
+    local kills = rtVal(useRealtime, rt.killsThisSiege, siegeData.killsThisSiege)
+    local bonus = rtVal(useRealtime, rt.bonusKills, siegeData.bonusKills)
+    local specKills = rtVal(useRealtime, rt.specialKills, siegeData.specialKillsThisSiege)
     local killText = tostring(kills) .. " killed"
     if bonus > 0 then
         killText = killText .. " (+" .. bonus .. " attracted)"
@@ -398,11 +418,11 @@ local function injectTabIntoExistingWindow()
     local playerNum = 0
     local infoWindow = getPlayerInfoPanel(playerNum)
     if not infoWindow then
-        SN.log("WARNING: getPlayerInfoPanel returned nil — will retry")
+        SN.log("WARNING: getPlayerInfoPanel returned nil  will retry")
         return false
     end
     if not infoWindow.panel then
-        SN.log("WARNING: Character info window has no panel — will retry")
+        SN.log("WARNING: Character info window has no panel  will retry")
         return false
     end
 

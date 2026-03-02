@@ -1,0 +1,250 @@
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-title.png[/img]
+
+[i]Every night could be your last.[/i]
+
+Siege Night turns your base into a battleground. Every few nights, the dead march on your position from a single direction -- wave after wave, growing stronger as the night goes on. Build your walls. Stock your ammo. Survive until dawn.
+
+Built for fortress defense. Solo or multiplayer.
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-features.png[/img]
+
+[list]
+[*] [b]Wave Cycles[/b] -- each siege runs structured phases: WAVE (dense assault bursts), TRICKLE (stragglers that keep the pressure on), and BREAK (a quiet window to patch up and reinforce). 3 to 7 waves per night, escalating as midnight approaches. The last push always hits hardest.
+[*] [b]Directional Attacks[/b] -- every siege picks one of 8 compass directions (N, NE, E, SE, S, SW, W, NW) and all zombies come from that angle for the entire night. You can't fortify everything. Different directions across siege nights force real decisions about where your walls go.
+[*] [b]Siege Scaling[/b] -- each siege is harder than the last. Zombie count scales with how many sieges you've survived and how many players are online. Early game: 3 waves, ~75-150 zombies. Late game: 6-7 waves, up to 1,500. More players draw bigger hordes.
+[*] [b]Dawn Survival[/b] -- make it to sunrise and your character announces the kill count. The siege panel tracks everything.
+[*] [b]20+ Sandbox Options[/b] -- tune siege frequency (fixed or randomized range), first siege day, base zombie count, scaling multiplier, max cap, spawn distance, special zombie rates, mini-horde thresholds, and more. Spread across 3 sandbox pages covering scheduling, specials, and mini-hordes.
+[*] [b]Kill Tracking[/b] -- a Siege Night tab in your character info window (press H) shows current wave and phase, kills this siege (siege spawns and attracted zombies tracked separately), lifetime totals, and full siege history for the last 20 nights.
+[/list]
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-specials.png[/img]
+
+[list]
+[*] [b]Sprinters[/b] -- fast. Blend in with the horde until they're already on you. Start appearing after midnight from week 3 onward.
+[*] [b]Breakers[/b] -- construction gear. Built to smash through your barricades and walls. Higher spawn rate than sprinters -- expect them.
+[*] [b]Tanks[/b] -- military outfits, 5x normal health. Two per siege by default. They take a beating and keep coming.
+[/list]
+
+Specials start spawning after midnight when the siege is at its peak. All rates, start week, and tank health can be tuned or disabled in sandbox options.
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-minihordes.png[/img]
+
+Between siege nights, your activity generates [b]heat[/b]. Running generators, firing guns, hoarding loot, driving vehicles -- it all attracts attention. The biggest draws: generators (+15), gunfire (+10), driving (+8), heavy construction (+5). Heat builds around your location and decays slowly when you go quiet.
+
+Push your luck too far and you'll hear: [i]"Something's attracting them from the south..."[/i]
+
+Mini-hordes come from the direction of your heat source. Run a generator on the east side of your base and they'll come from the east. There's a 30-minute cooldown between triggers so you won't get chain-hit.
+
+The heat system scales with player count in multiplayer, so bigger groups draw bigger problems.
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
+
+[h1]Commands[/h1]
+
+Type these in chat to control sieges:
+
+[list]
+[*] [b]!siege start[/b] -- Start a siege immediately (admin only in MP)
+[*] [b]!siege stop[/b] -- End the current siege (admin only in MP)
+[*] [b]!siege status[/b] -- Show current siege state, kills, and progress
+[*] [b]!siege next[/b] -- Show when the next siege is scheduled
+[*] [b]!siege vote[/b] -- Start a vote to trigger a siege (any player)
+[*] [b]!siege yes[/b] -- Vote yes on an active vote
+[*] [b]!siege optout[/b] -- Opt out of sieges (no zombies will spawn near you)
+[*] [b]!siege optin[/b] -- Opt back in
+[/list]
+
+The vote system needs a majority of online players. 60 second window. Opted-out players don't count toward the majority -- perfect for when part of your group wants to sit one out.
+
+[b]Singleplayer Controls[/b]
+SP doesn't have a chat window, so use the built-in debug menu instead:
+[list]
+[*] [b]Numpad 0[/b] -- Enable debug mode (must do this first)
+[*] [b]Numpad 2[/b] -- Cycle states (Idle > Warning > Active > Dawn)
+[*] [b]Numpad 7[/b] -- Set next siege to today
+[*] [b]Numpad 9[/b] -- Force-start a max siege immediately (any time of day)
+[*] [b]Numpad 6[/b] -- Toggle debug HUD overlay with all siege stats
+[*] [b]Numpad 1[/b] -- Dump full status to console
+[*] [b]Numpad 3[/b] -- Spawn 10 test zombies
+[*] [b]Numpad 8[/b] -- Fast-forward 1 hour
+[/list]
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
+
+[b]v2.5 -- Stable Foundation (Current)[/b]
+[list]
+[*] Wave system, directional attacks, special zombies
+[*] Mini-horde heat system
+[*] Kill tracking + siege history
+[*] Chat commands + vote system + opt-out
+[*] Full sandbox configuration (3 pages)
+[/list]
+
+[b]v2.6 -- Polish & Atmosphere[/b]
+[list]
+[*] Per-group independent sieges -- groups in different areas each get their own siege
+[*] Weather effects during sieges (fog, atmosphere)
+[*] Improved UI panels
+[*] Sound design overhaul
+[/list]
+
+[b]v3.0 -- Custom Special Zombies[/b]
+[list]
+[*] New zombie types with unique behaviors
+[*] Difficulty scaling over days survived
+[*] Boss zombies on milestone nights
+[/list]
+
+[b]Beyond[/b]
+[list]
+[*] Siege preparation phase
+[*] Custom siege schedules (blood moon cycles)
+[*] Loot rewards for surviving sieges
+[*] More community-requested features
+[/list]
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
+
+[h1]📋 Changelog[/h1]
+
+[b]v2.5.22[/b]
+[list]
+[*] Fixed: tank spawning could error on some dedicated servers ("__le not defined") and break siege ticks.
+[*] Fixed: mini-horde could spam client console errors from pathToCharacter on some servers.
+[/list]
+
+[b]v2.5.21[/b]
+[list]
+[*] Fixed: mini-horde no longer broadcasts a huge world sound that pulls in every nearby zombie.
+[/list]
+
+[b]v2.5.20[/b]
+[list]
+[*] Fixed: mini-horde console error spam in MP (stale player/zombie calls).
+[/list]
+
+[b]v2.5.19[/b]
+[list]
+[*] New sandbox options: Siege Start Hour and Siege End Hour -- set the siege window (defaults 20 to 6).
+[*] Warnings happen on the siege day before the start hour (if Warning Signs enabled).
+[/list]
+
+[b]v2.5.18[/b]
+[list]
+[*] New sandbox option: Max Wave Break (Seconds) -- caps break duration between waves. 0 = automatic scaling (3-10 min based on horde size). Set 90-120 for snappier pacing on smaller sieges.
+[/list]
+
+[b]v2.5.11[/b]
+[list]
+[*] [b]Fixed console error spam from naked corpse fix[/b] -- dressInNamedOutfit doesn't exist on IsoDeadBody in some PZ builds. Now checks method exists before calling instead of relying on pcall (PZ logs Java exceptions even inside pcall).
+[*] [b]Fixed siege tracker resetting kills mid-siege[/b] -- if client reconnects or receives a duplicate state change during an active siege, kill/spawn counters no longer reset to 0. Only resets on fresh siege start.
+[/list]
+
+[b]v2.5.10[/b]
+[list]
+[*] [b]Fixed console error spam from stuck zombie detection[/b] -- method guard added for isFallOnFront/isFallOnBack which don't exist on all PZ builds. Eliminates the pcall error loop on dedicated servers.
+[*] [b]Fixed vote-during-siege crash[/b] -- voting for a siege while one is already in WARNING, ACTIVE, or DAWN state now correctly blocked. Previously only checked ACTIVE, allowing a second siege to start and cause 10k+ error loops.
+[/list]
+
+[b]v2.5.14[/b]
+[list]
+[*] New siege trigger system -- manual (!siege start), vote, and debug-triggered sieges now persist their trigger type in ModData. Daytime sieges no longer get killed by dawn fallback. Survives server restarts.
+[*] Fixed siege tracker showing stale data when real-time values are zero (Lua 0-as-falsy fix).
+[*] Fixed error spam from naked corpse fix -- removed B42-incompatible getItemVisuals/IsoDeadBody API calls. Zombies now get dressed on spawn via client-side retry queue.
+[*] Faster kill tracking -- sync interval reduced from 5s to 2s.
+[/list]
+
+[b]v2.5.7[/b]
+[list]
+[*] [b]Fixed siege tracker desyncing on large MP servers[/b] -- wave counter, spawn count, and kill stats no longer revert to stale values. Panel now uses direct server commands instead of relying on ModData sync alone.
+[*] [b]Fixed infinite siege in singleplayer[/b] -- added hard safety timeout so sieges can't run forever if the normal dawn check fails.
+[*] Forced/voted sieges respect a longer timeout (23h) so admins can run extended events. Use !siege stop to end early.
+[*] Server now pushes real-time siege stats to all clients every 5 seconds via dedicated command channel.
+[/list]
+
+[b]v2.5.6[/b]
+[list]
+[*] [b]Fixed siege triggering every day[/b] -- nextSiegeDay is now the sole scheduling authority. The dual-check bug where a stuck nextSiegeDay made every day a siege day is gone.
+[*] [b]Fixed stats resetting on server restart[/b] -- client was creating blank local ModData that shadowed server's persisted data. Now uses explicit server-to-client sync on connect.
+[*] [b]Fixed nextSiegeDay mismatch[/b] -- client and server now guaranteed to show the same next siege day via direct sync command.
+[*] Stale nextSiegeDay detection now covers DAWN state (previously only IDLE)
+[*] Server restart mid-siege recovery now catches DAWN state too
+[*] Added diagnostic logging for all state transitions
+[*] Server transmits ModData immediately on load (no more 5-second delay)
+[*] Client requests full stats sync from server on connect (belt-and-suspenders reliability)
+[/list]
+
+[b]v2.5.5[/b]
+[list]
+[*] Fixed invisible zombies in MP -- replaced makeInactive hack with direct stat API calls (Bandits-style). Special zombies (sprinters, breakers, tanks) now stay visible to all players.
+[*] Fixed zombie loot rerolling -- makeInactive was destroying and recreating zombies, regenerating their loot tables. No more loot switching on siege spawns.
+[*] Fixed naked zombie corpses (again) -- makeInactive was resetting visual state. Direct API calls preserve outfits.
+[*] Fixed MiniHorde crash (getGenerator nil call) -- generator detection now pcall-guarded for B42.14 compatibility
+[*] Client-side SyncSpecial command ensures all players see correct special zombie stats
+[/list]
+
+[b]v2.5.4[/b]
+[list]
+[*] Fixed chat commands not working in B42 MP -- OnChatMessage event doesn't exist in B42, replaced with OnAddMessage
+[*] Changed command prefix from /siege to !siege -- PZ intercepts slash commands as built-in, causing "unknown command" errors
+[*] All server response messages updated to show correct !siege syntax
+[*] Fixed !siege start during daytime immediately canceling -- manual and vote-triggered sieges now bypass dawn fallback
+[*] Fixed mid-siege server restart recovery never triggering (DAWN_HOUR == WARNING_HOUR made the condition always false)
+[/list]
+
+[b]v2.5.3[/b]
+[list]
+[*] [b]NEW: Chat commands![/b] !siege start, !siege stop, !siege status, !siege next, !siege vote
+[*] [b]NEW: Vote system[/b] -- any player can call !siege vote to start a siege when the group is ready. Needs majority vote, 60 second window.
+[*] !siege start and !siege stop are admin-only in MP. In singleplayer, all commands work.
+[*] Fixed zombie count exceeding MaxZombies cap (establishment multiplier was applied after cap)
+[*] Fixed zombies spawning too close to players in fallback spawn passes -- minimum 25 tiles enforced
+[*] Fixed naked zombie corpses in MP -- outfits now persist through the stat swap cycle
+[*] Fixed invisible zombies in MP -- nearby players now share a spawn zone so both clients see all zombies
+[*] [b]NEW: Dual kill tracking[/b] -- all zombie kills during a siege count toward ending it (siege spawns + attracted). Panel shows breakdown.
+[*] Fixed siege getting permanently stuck in ACTIVE after server restart -- dawn now forces siege end
+[*] Fixed nextSiegeDay resetting to "today" after server restart -- stale dates now auto-advance
+[*] Fixed server restart mid-siege during daytime leaving state stuck -- auto-resets to IDLE
+[*] New dawn fallback dialogue when siege times out vs horde cleared
+[/list]
+
+[b]v2.5.2[/b]
+[list]
+[*] Fixed dawn fallback -- siege now properly ends at dawn if server restarts during active siege
+[/list]
+
+[b]v2.5.1[/b]
+[list]
+[*] Fixed naked zombie corpses on MP dedicated servers
+[*] Outfit data now properly syncs server-side after spawn
+[/list]
+
+[b]v2.5.0[/b]
+[list]
+[*] Removed all zombie groan sound effects
+[*] Fixed infinite mini-horde feedback loop
+[*] Added grace period between mini-horde triggers
+[*] Increased heat decay rate
+[*] Fixed siege trigger bug with short day lengths
+[/list]
+
+[b]v2.4.0[/b]
+[list]
+[*] Initial public release
+[*] Wave system, special zombies, mini-hordes, kill tracking
+[/list]
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
+
+Built for [b]Build 42.14 (latest unstable)[/b]. Works in singleplayer and multiplayer.
+
+🐛 Found a bug? Drop a comment on the Workshop page.
+💡 Have an idea? We're listening.
+
+[b]By Unprocessable Entities[/b]
