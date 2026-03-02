@@ -30,6 +30,12 @@ local SN = require("SiegeNight_Shared")
 -- ==========================================
 local CELL_SIZE = 100
 local heatGrid = {}
+
+-- Per-10-minute heat caps (prevents gunfire from chain-triggering mini-hordes constantly)
+local SN_MH_LastTenMinTick = -1
+local SN_MH_GunfireHeatThisTick = 0
+local SN_MH_MaxGunfireHeatPerTick = 60
+
 local recentKills = {}
 
 local function getCellKey(worldX, worldY)
@@ -53,7 +59,40 @@ local function getHeatData(cellKey)
     return heatGrid[cellKey]
 end
 
-local function addHeat(worldX, worldY, amount)
+-- ==========================================
+-- SPAWN SAFETY HELPERS
+-- ==========================================
+
+--- Treat rooms, safehouses, and player-built thumpables as "player areas".
+--- Prevents mini-hordes from spawning inside bases/pens.
+local function isInsidePlayerArea(sq)
+    if not sq then return true end
+    if sq:getRoom() then return true end
+    local isSafe = SafeHouse and SafeHouse.getSafeHouse and SafeHouse.getSafeHouse(sq) or nil
+    if isSafe ~= nil then return true end
+
+    local objects = sq:getObjects()
+    if objects then
+        for oi = 0, objects:size() - 1 do
+            local obj = objects:get(oi)
+            if obj and instanceof(obj, "IsoThumpable") then
+                return true
+            end
+        end
+    end
+    return false
+end
+local function addHeat(worldX, worldY, amount, source)
+    if source == 'gunfire' then
+        local add = amount or 0
+        if SN_MH_GunfireHeatThisTick >= SN_MH_MaxGunfireHeatPerTick then return end
+        if SN_MH_GunfireHeatThisTick + add > SN_MH_MaxGunfireHeatPerTick then
+            add = SN_MH_MaxGunfireHeatPerTick - SN_MH_GunfireHeatThisTick
+        end
+        if add <= 0 then return end
+        SN_MH_GunfireHeatThisTick = SN_MH_GunfireHeatThisTick + add
+        amount = add
+    end
     local cellKey = getCellKey(worldX, worldY)
     if not cellKey then return end
     local data = getHeatData(cellKey)
@@ -87,7 +126,7 @@ end
 -- ==========================================
 
 local function onWeaponSwing(character, handWeapon)
-    if not SN.getSandbox("MiniHorde_Enabled") then return end
+    if not SN or not SN.getSandbox or not SN.getSandbox("MiniHorde_Enabled") then return end
     if not handWeapon then return end
     if not character then return end
 
@@ -95,14 +134,22 @@ local function onWeaponSwing(character, handWeapon)
     if scriptItem and scriptItem:getAmmoType() then
         local px, py = character:getX(), character:getY()
         if type(px) == "number" and type(py) == "number" then
-            addHeat(px, py, 10)
+            do
+        local add = 10
+        if SN_MH_GunfireHeatThisTick >= SN_MH_MaxGunfireHeatPerTick then add = 0 end
+        if SN_MH_GunfireHeatThisTick + add > SN_MH_MaxGunfireHeatPerTick then add = SN_MH_MaxGunfireHeatPerTick - SN_MH_GunfireHeatThisTick end
+        if add > 0 then
+            SN_MH_GunfireHeatThisTick = SN_MH_GunfireHeatThisTick + add
+            addHeat(px, py, add)
+        end
+    end
             SN.debug("Gunfire detected from " .. tostring(character:getUsername() or "player"))
         end
     end
 end
 
 local function onHitZombie(zombie, character, bodyPartType, handWeapon)
-    if not SN.getSandbox("MiniHorde_Enabled") then return end
+    if not SN or not SN.getSandbox or not SN.getSandbox("MiniHorde_Enabled") then return end
     if not character then return end
     if not instanceof(character, "IsoPlayer") then return end
 
@@ -125,7 +172,12 @@ local triggerMiniHorde
 -- ==========================================
 
 local function onEveryTenMinutes()
-    if not SN.getSandbox("MiniHorde_Enabled") then return end
+    -- MINIHORDE SAFETY: SN not initialized (prevents crash loops if shared module failed to load)
+    if not SN or not SN.getSandbox then return end
+    if not SN or not SN.getSandbox or not SN.getSandbox("MiniHorde_Enabled") then return end
+
+    -- Reset per-10-minute gunfire cap
+    SN_MH_GunfireHeatThisTick = 0
 
     local siegeData = SN.getWorldData()
     if not siegeData then return end
@@ -143,11 +195,11 @@ local function onEveryTenMinutes()
                 local cellKey = getCellKey(px, py)
 
                 -- Base presence heat (slightly more than before)
-                addHeat(px, py, 3)
+                addHeat(px, py, 3, nil)
 
                 -- Vehicle noise (more impactful)
                 if player:getVehicle() then
-                    addHeat(px, py, 8)
+                    addHeat(px, py, 8, nil)
                 end
 
                 -- Kill activity (higher impact)
@@ -171,7 +223,7 @@ local function onEveryTenMinutes()
                             if sq and sq.getGenerator then
                                 local okG, generator = pcall(sq.getGenerator, sq)
                                 if okG and generator and generator.isRunning and generator:isRunning() then
-                                    addHeat(px, py, 15)
+                                    addHeat(px, py, 15, nil)
                                     foundGenerator = true
                                     break
                                 end
@@ -185,7 +237,7 @@ local function onEveryTenMinutes()
                 if inv then
                     local weight = inv:getCapacityWeight()
                     if weight > 15 then
-                        addHeat(px, py, 5)
+                        addHeat(px, py, 5, nil)
                     end
                 end
             end
@@ -209,7 +261,7 @@ local function onEveryTenMinutes()
             data.lastTrigger = now
         end
 
-        -- Decay heat (8 per tick — faster decay to prevent runaway accumulation)
+        -- Decay heat (8 per tick  faster decay to prevent runaway accumulation)
         data.heat = math.max(0, data.heat - 8)
 
         if data.heat <= 0 and (now - data.lastTrigger) > 1 then
@@ -337,7 +389,7 @@ local function onMiniHordeTick()
                         local fy = math.floor(baseY + perpY * spread)
 
                         local square = getWorld():getCell():getGridSquare(fx, fy, 0)
-                        if square and square:isFree(false) and square:isOutside() then
+                        if square and square:isFree(false) and square:isOutside() and not isInsidePlayerArea(square) then
                             local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
                             local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.5)
                             if zombies and zombies:size() > 0 then
@@ -346,14 +398,24 @@ local function onMiniHordeTick()
                                 if isServer() then
                                     zombie:dressInNamedOutfit(outfit)
                                 end
-                                zombie:pathToCharacter(job.player)
-                                zombie:setTarget(job.player)
-                                zombie:setAttackedBy(job.player)
-                                zombie:spottedNew(job.player, true)
-                                zombie:addAggro(job.player, 1)
+                                -- MP safety: player/zombie objects can be stale between ticks
+                                local p = job.player
+                                local okP, pX = pcall(function() return p and p:getX() end)
+                                if okP and type(pX) == "number" then
+                                    -- pathToCharacter can throw Java InvocationTargetException on some dedicated servers.
+                                    -- Target/aggro is enough for mini-hordes, so skip pathing.
+                                    pcall(function() zombie:setTarget(p) end)
+                                    pcall(function() zombie:setAttackedBy(p) end)
+                                    pcall(function() zombie:spottedNew(p, true) end)
+                                    pcall(function() zombie:addAggro(p, 1) end)
+                                else
+                                    -- Player disappeared/disconnected; stop this mini-horde job
+                                    job.remaining = 0
+                                end
                                 zombie:getModData().SN_MiniHorde = true
                             end
-                            getWorldSoundManager():addSound(job.player, math.floor(px), math.floor(py), 0, 200, 10)
+                            -- NOTE: do NOT broadcast a huge world sound here.
+                            -- Mini-horde zombies already get explicit target/aggro; a big sound radius pulls in the entire cell.
 
                             job.remaining = job.remaining - 1
                             break
@@ -377,3 +439,4 @@ Events.EveryTenMinutes.Add(onEveryTenMinutes)
 Events.OnTick.Add(onMiniHordeTick)
 Events.OnWeaponSwing.Add(onWeaponSwing)
 Events.OnHitZombie.Add(onHitZombie)
+

@@ -16,7 +16,6 @@
 ]]
 
 local SN = require("SiegeNight_Shared")
-
 -- ==========================================
 -- LOCAL STATE
 -- ==========================================
@@ -25,12 +24,97 @@ local SN = require("SiegeNight_Shared")
 local dawnTicksRemaining = 0
 local DAWN_DURATION_TICKS = 300  -- ~10 seconds at 30fps
 
--- When true, skip dawn fallback (manual/vote start during daytime)
-local forcedDaySiege = false
+-- ==========================================
+-- SPECIAL CORPSE SANITY (MP)
+-- ==========================================
+
+local function worldAgeSecSafe()
+    local w = getWorld()
+    if w and w.getWorldAgeDays then
+        local ok, d = pcall(function() return w:getWorldAgeDays() end)
+        if ok and type(d) == "number" then return d * 86400 end
+    end
+    return 0
+end
+
+local function isZombieOnGround(z)
+    if not z then return false end
+    -- API varies by build, so guard multiple methods.
+    if z.isOnFloor then
+        local ok, v = pcall(function() return z:isOnFloor() end)
+        if ok and v == true then return true end
+    end
+    if z.isKnockedDown then
+        local ok, v = pcall(function() return z:isKnockedDown() end)
+        if ok and v == true then return true end
+    end
+    if z.isFallOnFront then
+        local ok, v = pcall(function() return z:isFallOnFront() end)
+        if ok and v == true then return true end
+    end
+    if z.isFallOnBack then
+        local ok, v = pcall(function() return z:isFallOnBack() end)
+        if ok and v == true then return true end
+    end
+    return false
+end
+
+local function forceKillZombie(z)
+    if not z then return end
+    -- Try a few methods, all guarded.
+    if z.Kill then pcall(function() z:Kill(nil) end) end
+    if z.kill then pcall(function() z:kill(nil) end) end
+    if z.setHealth then pcall(function() z:setHealth(0) end) end
+end
+
+local function specialCorpseSanityTick(siegeZombies)
+    if not siegeZombies then return end
+    local now = worldAgeSecSafe()
+    for i = #siegeZombies, 1, -1 do
+        local entry = siegeZombies[i]
+        local z = entry and entry.zombie or nil
+        if not z then
+            table.remove(siegeZombies, i)
+        else
+            local md = z:getModData()
+            if md and md.SN_SpecialType then
+                local okDead, isDead = pcall(function() return z:isDead() end)
+                if okDead and isDead then
+                    md.SN_DownedAt = nil
+                else
+                    if isZombieOnGround(z) then
+                        if not md.SN_DownedAt then md.SN_DownedAt = now end
+                        if (now - md.SN_DownedAt) > 8 then
+                            -- If a special has been on the ground for a while, force a clean kill.
+                            forceKillZombie(z)
+                            md.SN_DownedAt = now
+                        end
+                    else
+                        md.SN_DownedAt = nil
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Siege trigger types (stored in siegeData.siegeTrigger in ModData for persistence)
+--   "scheduled" = normal nighttime siege from tick-based detection (default)
+--   "manual"    = admin used !siege start
+--   "vote"      = player vote passed
+--   "debug"     = state forced via PZ debug panel or external ModData edit
+-- Only "scheduled" sieges obey the dawn fallback. All others run until cleared or stopped.
+
+--- Check if the current siege was player-initiated (not a scheduled nighttime siege).
+--- Reads from ModData so it survives server restarts.
+local function isPlayerTriggered(siegeData)
+    local trigger = siegeData and siegeData.siegeTrigger
+    return trigger == "manual" or trigger == "vote" or trigger == "debug"
+end
 
 -- ModData sync to clients (for UI panel updates)
 local syncTickCounter = 0
-local SYNC_INTERVAL = 300  -- ~5 seconds between client syncs
+local SYNC_INTERVAL = 60  -- ~2 seconds between client syncs
 
 -- Zombie attraction system
 local attractorTickCounter = 0
@@ -40,6 +124,12 @@ local ATTRACTOR_INTERVAL = 150  -- ~5 seconds
 local siegeZombies = {}
 local REPATH_INTERVAL = 300  -- ~5 seconds between re-paths (was 150)
 local repathTickCounter = 0
+
+-- Special corpse sanity (MP): periodically force-kill specials that get stuck "downed" forever
+local corpseSanityCounter = 0
+local CORPSE_SANITY_INTERVAL = 30  -- ~1s
+
+-- Outfit patrol removed: server-side dressInNamedOutfit was causing naked zombies.
 
 -- ==========================================
 -- WAVE SYSTEM STATE
@@ -60,19 +150,9 @@ local spawnTickCounter = 0     -- tick counter for spawn intervals
 local function onZombieDead(zombie)
     if not zombie then return end
 
-    -- Re-apply outfit on death to prevent naked corpses in MP
-    -- Server-side re-dress ensures WornItems are populated for IsoDeadBody creation
+    -- DO NOT redress on death. Server-side dressInNamedOutfit overwrites client visuals
+    -- and is the root cause of naked zombies. addZombiesInOutfit handles clothing correctly.
     local md = zombie:getModData()
-    if md and md.SN_Outfit then
-        zombie:dressInNamedOutfit(md.SN_Outfit)
-        -- Also notify clients to re-dress on their end
-        if isServer() then
-            sendServerCommand(SN.CLIENT_MODULE, "RedressZombie", {
-                id = zombie:getOnlineID(),
-                outfit = md.SN_Outfit
-            })
-        end
-    end
 
     local siegeData = SN.getWorldData()
     if not siegeData then return end
@@ -97,7 +177,7 @@ end
 -- ==========================================
 -- PLAYER LIST HELPER
 -- ==========================================
-local function getPlayerList()
+local function getPlayerList(includeOptedOut)
     local playerList = {}
     local isSP = not isServer() and not isClient()
     if isSP then
@@ -111,7 +191,10 @@ local function getPlayerList()
             for p = 0, players:size() - 1 do
                 local player = players:get(p)
                 if player and player:isAlive() then
-                    table.insert(playerList, player)
+                    -- Skip opted-out players unless explicitly including them
+                    if includeOptedOut or not player:getModData().SN_OptedOut then
+                        table.insert(playerList, player)
+                    end
                 end
             end
         end
@@ -170,9 +253,10 @@ local function pickPrimaryDirection(lastDirection)
     return dir
 end
 
-local function getSpawnPosition(player, primaryDir, usePrimary)
-    local px = player:getX()
-    local py = player:getY()
+local function getSpawnPosition(spawnPlayer, primaryDir, usePrimary)
+    if not spawnPlayer then return nil end
+    local px = spawnPlayer:getX()
+    local py = spawnPlayer:getY()
     local spawnDist = SN.getSandbox("SpawnDistance")
 
     local dir
@@ -192,6 +276,24 @@ local function getSpawnPosition(player, primaryDir, usePrimary)
     local targetX = math.floor(baseX + perpX * spread)
     local targetY = math.floor(baseY + perpY * spread)
 
+    -- Helper: check if a square is inside an enclosed area
+    -- Uses PZ's room system + checks for player-built objects (barricades, crates, walls)
+    local function isInsideEnclosure(sq)
+        -- If the square has a room assigned by PZ, it's inside a building
+        if sq:getRoom() then return true end
+        -- Check if the square has player-built floor/wall (IsoThumpable = player-built)
+        local objects = sq:getObjects()
+        if objects then
+            for oi = 0, objects:size() - 1 do
+                local obj = objects:get(oi)
+                if obj and instanceof(obj, "IsoThumpable") then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
     -- Pass 1: ideal spot (must be in a loaded cell so all players can see it)
     for attempt = 0, 30 do
         local tryX = targetX + ZombRand(11) - 5
@@ -199,9 +301,7 @@ local function getSpawnPosition(player, primaryDir, usePrimary)
         local square = getWorld():getCell():getGridSquare(tryX, tryY, 0)
         if square then
             local isSafe = SafeHouse and SafeHouse.getSafeHouse and SafeHouse.getSafeHouse(square) or nil
-            if square:isFree(false) and square:isOutside() and isSafe == nil then
-                -- In MP, verify the chunk is loaded (getGridSquare returns nil for unloaded)
-                -- square existing means the cell IS loaded for the server
+            if square:isFree(false) and square:isOutside() and isSafe == nil and not isInsideEnclosure(square) then
                 return tryX, tryY
             end
         end
@@ -219,21 +319,22 @@ local function getSpawnPosition(player, primaryDir, usePrimary)
         local dist = math.sqrt((tryX - px)^2 + (tryY - py)^2)
         if dist >= minDist then
             local square = getWorld():getCell():getGridSquare(tryX, tryY, 0)
-            if square and square:isFree(false) and square:isOutside() then
+            if square and square:isFree(false) and square:isOutside() and not isInsideEnclosure(square) then
                 return tryX, tryY
             end
         end
     end
 
-    -- Pass 3: random scatter -  still enforce minimum distance
+    -- Pass 3: random scatter - enforce minimum distance AND outdoor-only
+    local pass3MinDist = math.max(40, spawnDist * 0.6)
     for fallback = 0, 30 do
         local range = math.floor(spawnDist * 0.7)
         local fx = math.floor(px + ZombRand(range * 2) - range)
         local fy = math.floor(py + ZombRand(range * 2) - range)
         local dist = math.sqrt((fx - px)^2 + (fy - py)^2)
-        if dist >= minDist then
+        if dist >= pass3MinDist then
             local square = getWorld():getCell():getGridSquare(fx, fy, 0)
-            if square and square:isFree(false) then
+            if square and square:isFree(false) and square:isOutside() and not isInsideEnclosure(square) then
                 return fx, fy
             end
         end
@@ -249,14 +350,19 @@ end
 
 local function rollSpecialType(siegeData)
     if not SN.getSandbox("SpecialZombiesEnabled") then return "normal" end
-    if siegeData.siegeCount < (SN.getSandbox("SpecialZombiesStartWeek") - 1) then return "normal" end
 
-    local hoursSinceDusk = SN.getHoursSinceDusk()
-    if hoursSinceDusk < SN.MIDNIGHT_RELATIVE_HOUR then return "normal" end
+    -- Defensive casts: some servers end up with sandbox/moddata values as strings.
+    -- Kahlua will throw "__le not defined for operand" on mixed-type comparisons.
+    local siegeCount = tonumber(siegeData and siegeData.siegeCount) or 0
+    local startWeek = tonumber(SN.getSandbox("SpecialZombiesStartWeek")) or 0
+    if siegeCount < (startWeek - 1) then return "normal" end
+
+    local hoursSinceDusk = tonumber(SN.getHoursSinceDusk()) or 0
+    if hoursSinceDusk < (SN.MIDNIGHT_RELATIVE_HOUR or 4) then return "normal" end
 
     local roll = ZombRand(100)
-    local sprinterChance = SN.getSandbox("SprinterPercent")
-    local breakerChance = SN.getSandbox("BreakerPercent")
+    local sprinterChance = tonumber(SN.getSandbox("SprinterPercent")) or 0
+    local breakerChance = tonumber(SN.getSandbox("BreakerPercent")) or 0
 
     if roll < sprinterChance then return "sprinter" end
     if roll < sprinterChance + breakerChance then return "breaker" end
@@ -265,14 +371,23 @@ end
 
 local function shouldSpawnTank(siegeData)
     if not SN.getSandbox("SpecialZombiesEnabled") then return false end
-    if siegeData.siegeCount < (SN.getSandbox("SpecialZombiesStartWeek") - 1) then return false end
-    if siegeData.tanksSpawned >= SN.getSandbox("TankCount") then return false end
 
-    local hoursSinceDusk = SN.getHoursSinceDusk()
-    local nightDuration = SN.getNightDuration()
+    -- Defensive casts: some servers end up with sandbox/moddata values as strings.
+    -- Kahlua will throw "__le not defined for operand" on mixed-type comparisons.
+    local siegeCount = tonumber(siegeData and siegeData.siegeCount) or 0
+    local tanksSpawned = tonumber(siegeData and siegeData.tanksSpawned) or 0
+    local startWeek = tonumber(SN.getSandbox("SpecialZombiesStartWeek")) or 0
+    local tankCount = tonumber(SN.getSandbox("TankCount")) or 0
+
+    if siegeCount < (startWeek - 1) then return false end
+    if tanksSpawned >= tankCount then return false end
+
+    local hoursSinceDusk = tonumber(SN.getHoursSinceDusk()) or 0
+    local nightDuration = tonumber(SN.getNightDuration()) or 0
+    if nightDuration <= 0 then return false end
     if hoursSinceDusk < (nightDuration * 0.65) then return false end
 
-    local remainingTanks = SN.getSandbox("TankCount") - siegeData.tanksSpawned
+    local remainingTanks = tankCount - tanksSpawned
     local remainingHours = nightDuration - hoursSinceDusk
     if remainingHours <= 0 then return false end
 
@@ -288,6 +403,11 @@ local specialQueue = {}
 --- Apply special zombie VISUAL DISTINCTION immediately (safe, no sandbox swap).
 --- Actual stat changes are queued and applied one-per-tick.
 local function applySpecialStats(zombie, specialType)
+
+        -- DEFENSIVE SPECIAL TAG: ensure sprinters/breakers/tanks are tagged for MP corpse sanity
+        if specialType and specialType ~= "normal" then
+            zombie:getModData().SN_SpecialType = specialType
+        end
     if specialType == "normal" then return end
 
     -- Tag the zombie for identification immediately
@@ -299,11 +419,25 @@ local function applySpecialStats(zombie, specialType)
     if specialType == "breaker" then
         local outfit = SN.BREAKER_OUTFITS[ZombRand(#SN.BREAKER_OUTFITS) + 1]
         zombie:getModData().SN_Outfit = outfit
-        zombie:dressInNamedOutfit(outfit)
+        if isServer() then
+            local zid = zombie:getOnlineID()
+            if zid and zid > 0 then
+                sendServerCommand(SN.CLIENT_MODULE, "DressZombie", { id = zid, outfit = outfit })
+            end
+        else
+            zombie:dressInNamedOutfit(outfit)
+        end
     elseif specialType == "tank" then
         local outfit = SN.TANK_OUTFITS[ZombRand(#SN.TANK_OUTFITS) + 1]
         zombie:getModData().SN_Outfit = outfit
-        zombie:dressInNamedOutfit(outfit)
+        if isServer() then
+            local zid = zombie:getOnlineID()
+            if zid and zid > 0 then
+                sendServerCommand(SN.CLIENT_MODULE, "DressZombie", { id = zid, outfit = outfit })
+            end
+        else
+            zombie:dressInNamedOutfit(outfit)
+        end
     end
     -- Sprinters keep random outfit (SN_Outfit already set from spawnOneZombie)
 
@@ -355,6 +489,8 @@ local function processSpecialQueue()
         end
     end
 
+    -- DO NOT re-dress here. dressInNamedOutfit on server overwrites client visuals.
+    -- setHealth/setSpeedMod do not strip clothing (verified by outfit test).
     SN.debug("Applied " .. specialType .. " stats directly (no makeInactive)")
 end
 
@@ -362,10 +498,10 @@ end
 -- SPAWN ENGINE
 -- ==========================================
 
-local function spawnOneZombie(player, primaryDir, specialType, healthMult)
+local function spawnOneZombie(spawnPlayer, aggroPlayer, primaryDir, specialType, healthMult)
     local usePrimary = (ZombRand(100) < 65)
 
-    local spawnX, spawnY = getSpawnPosition(player, primaryDir, usePrimary)
+    local spawnX, spawnY = getSpawnPosition(spawnPlayer, primaryDir, usePrimary)
     if not spawnX then
         SN.debug("Failed to find spawn position for zombie")
         return false
@@ -377,26 +513,30 @@ local function spawnOneZombie(player, primaryDir, specialType, healthMult)
     local zombies = addZombiesInOutfit(spawnX, spawnY, 0, 1, outfit, 50, false, false, false, false, false, false, healthMult)
     if zombies and zombies:size() > 0 then
         local zombie = zombies:get(0)
-        -- Store outfit in moddata for re-application after makeInactive
+        -- Store outfit in moddata (for kill tracking, future loot tier system)
         zombie:getModData().SN_Outfit = outfit
-        -- Dress server-side immediately
-        if isServer() then
-            zombie:dressInNamedOutfit(outfit)
-        end
+        -- DO NOT call dressInNamedOutfit or send RedressZombie here!
+        -- addZombiesInOutfit already handles clothing on the client side.
+        -- Server-side dressInNamedOutfit overwrites client visuals and causes naked zombies.
         applySpecialStats(zombie, specialType)
+
+        -- DEFENSIVE SPECIAL TAG: ensure sprinters/breakers/tanks are tagged for MP corpse sanity
+        if specialType and specialType ~= "normal" then
+            zombie:getModData().SN_SpecialType = specialType
+        end
 
         -- Soft targeting: sound-based pathing instead of GPS lock
         -- Zombies head toward the player's area but can lose track, wander, get stuck on walls
-        zombie:pathToSound(player:getX(), player:getY(), 0)
+        if aggroPlayer then zombie:pathToSound(aggroPlayer:getX(), aggroPlayer:getY(), 0) end
 
         -- Tag as siege zombie
         zombie:getModData().SN_Siege = true
 
         -- Sound attractor (draws them toward player area naturally)
-        getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 50, 5)
+        if aggroPlayer then getWorldSoundManager():addSound(aggroPlayer, math.floor(aggroPlayer:getX()), math.floor(aggroPlayer:getY()), 0, 50, 5) end
 
         -- Track for re-pathing
-        table.insert(siegeZombies, { zombie = zombie, player = player })
+        table.insert(siegeZombies, { zombie = zombie, player = aggroPlayer })
         local MAX_TRACKED_ZOMBIES = 200
         if #siegeZombies > MAX_TRACKED_ZOMBIES then
             local overflow = #siegeZombies - MAX_TRACKED_ZOMBIES
@@ -495,11 +635,23 @@ end
 -- STATE MACHINE
 -- ==========================================
 
-local function enterActiveState(siegeData, reason, playerList)
+local function enterActiveState(siegeData, reason, playerList, trigger)
+    trigger = trigger or "scheduled"
     local dir = pickPrimaryDirection(siegeData.lastDirection)
     siegeData.lastDirection = dir
     siegeData.siegeState = SN.STATE_ACTIVE
+    siegeData.siegeTrigger = trigger
     siegeData.siegeCount = math.max(0, siegeData.siegeCount)
+
+    -- Cap siege count to actual sieges completed + 1
+    -- Prevents existing saves from getting hit with a massive first siege
+    -- (e.g. adding mod on day 100 shouldn't mean siege #14 difficulty)
+    local actualCompleted = siegeData.totalSiegesCompleted or 0
+    if siegeData.siegeCount > actualCompleted + 1 then
+        SN.log("SCALING CAP: siegeCount " .. siegeData.siegeCount .. " capped to " .. (actualCompleted + 1)
+            .. " (only " .. actualCompleted .. " sieges actually completed)")
+        siegeData.siegeCount = actualCompleted + 1
+    end
 
     -- Calculate zombie count with player scaling and establishment
     local playerCount = playerList and #playerList or 1
@@ -527,7 +679,7 @@ local function enterActiveState(siegeData, reason, playerList)
     siegeData.currentWaveIndex = currentWaveIndex
     siegeData.currentPhase = currentPhase
 
-    SN.log("ACTIVE state entered (" .. reason .. "). Siege #" .. siegeData.siegeCount
+    SN.log("ACTIVE state entered (" .. reason .. ", trigger=" .. trigger .. "). Siege #" .. siegeData.siegeCount
         .. ", target: " .. siegeData.targetZombies .. " zombies"
         .. " (" .. #waveStructure .. " waves)"
         .. " from " .. SN.DIR_NAMES[dir + 1]
@@ -588,13 +740,7 @@ local function handleSiegeStart(player)
         return
     end
     local playerList = getPlayerList()
-    -- Allow daytime sieges when manually triggered or voted
-    local currentHour = SN.getCurrentHour()
-    if currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
-        forcedDaySiege = true
-        SN.log("Daytime siege -- dawn fallback disabled for this siege")
-    end
-    enterActiveState(siegeData, "manual trigger by " .. (player:getUsername() or "player"), playerList)
+    enterActiveState(siegeData, "manual trigger by " .. (player:getUsername() or "player"), playerList, "manual")
     broadcastToAll("CmdResponse", { message = "Siege started by " .. (player:getUsername() or "player") .. "!" })
     SN.log("MANUAL SIEGE triggered by " .. (player:getUsername() or "player"))
 end
@@ -615,6 +761,20 @@ local function handleSiegeStop(player)
     end
     siegeData.siegeState = SN.STATE_DAWN
     dawnTicksRemaining = DAWN_DURATION_TICKS
+    siegeData.dawnToIdleProcessed = false
+    siegeData.endSeq = (siegeData.endSeq or 0) + 1
+    siegeData.endSeqProcessed = nil
+    siegeData.ending = true
+    -- Stop lock: prevents tick loop from re-triggering end logic / duplicate state changes right after manual stop
+    local w = getWorld()
+    local nowAge = 0
+    if w and w.getWorldAgeDays then
+        local ok, d = pcall(function() return w:getWorldAgeDays() end)
+        if ok and type(d) == "number" then
+            nowAge = d * 24
+        end
+    end
+    siegeData.stopLockUntil = nowAge + (10.0 / 3600.0)
     if isServer() then ModData.transmit("SiegeNight") end
     broadcastToAll("StateChange", {
         state = SN.STATE_DAWN,
@@ -631,8 +791,8 @@ end
 local function handleSiegeVote(player)
     local siegeData = SN.getWorldData()
     if not siegeData then return end
-    if siegeData.siegeState == SN.STATE_ACTIVE then
-        sendResponseToPlayer(player, "A siege is already active!")
+    if siegeData.siegeState ~= SN.STATE_IDLE then
+        sendResponseToPlayer(player, "A siege is already in progress!")
         return
     end
     if voteState.active then
@@ -675,13 +835,8 @@ local function handleSiegeVoteYes(player)
         SN.log("SIEGE VOTE PASSED (" .. count .. "/" .. voteState.needed .. ")")
         local siegeData = SN.getWorldData()
         if siegeData then
-            local currentHour = SN.getCurrentHour()
-            if currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
-                forcedDaySiege = true
-                SN.log("Daytime vote siege -- dawn fallback disabled for this siege")
-            end
             local playerList = getPlayerList()
-            enterActiveState(siegeData, "vote passed", playerList)
+            enterActiveState(siegeData, "vote passed", playerList, "vote")
         end
     end
 end
@@ -706,6 +861,92 @@ local function onClientCommand(module, command, player, args)
         handleSiegeVote(player)
     elseif command == "CmdSiegeVoteYes" then
         handleSiegeVoteYes(player)
+    elseif command == "CmdSiegeOptOut" then
+        player:getModData().SN_OptedOut = true
+        sendServerCommand(player, SN.CLIENT_MODULE, "ServerMsg", { msg = "You have opted out of sieges. Zombies will not spawn near you. Type !siege optin to rejoin." })
+        SN.log("Player " .. (player:getUsername() or "?") .. " opted out of sieges")
+    elseif command == "CmdSiegeOptIn" then
+        player:getModData().SN_OptedOut = nil
+        sendServerCommand(player, SN.CLIENT_MODULE, "ServerMsg", { msg = "You have opted back into sieges. Welcome back!" })
+        SN.log("Player " .. (player:getUsername() or "?") .. " opted back into sieges")
+    elseif command == "CmdTestOutfits" then
+        -- Debug: spawn one zombie per outfit, check if clothed, report results
+        if not isPlayerAdmin(player) then return end
+        SN.log("=== OUTFIT VALIDATION TEST ===")
+        local px, py = player:getX(), player:getY()
+        local results = {}
+        local outfits = SN.ZOMBIE_OUTFITS
+        for idx, outfit in ipairs(outfits) do
+            local sx = px + ((idx % 10) * 3) - 15
+            local sy = py + (math.floor(idx / 10) * 3) - 6
+            local ok, zombies = pcall(function()
+                return addZombiesInOutfit(sx, sy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
+            end)
+            if ok and zombies and zombies:size() > 0 then
+                local z = zombies:get(0)
+                z:getModData().SN_TestOutfit = outfit
+                -- Check if zombie has any worn items (dressed = has items)
+                local wornCount = 0
+                pcall(function()
+                    local worn = z:getWornItems()
+                    if worn then wornCount = worn:size() end
+                end)
+                local status = wornCount > 0 and "DRESSED(" .. wornCount .. ")" or "NAKED"
+                table.insert(results, outfit .. "=" .. status)
+                SN.log("  " .. outfit .. ": " .. status .. " (wornItems=" .. wornCount .. ")")
+            else
+                table.insert(results, outfit .. "=SPAWN_FAILED")
+                SN.log("  " .. outfit .. ": SPAWN FAILED")
+            end
+        end
+        -- Send summary to player
+        local naked = 0
+        local dressed = 0
+        for _, r in ipairs(results) do
+            if r:find("NAKED") then naked = naked + 1
+            elseif r:find("DRESSED") then dressed = dressed + 1 end
+        end
+        local summary = "Outfit test: " .. dressed .. " dressed, " .. naked .. " naked, " .. #results .. " total"
+        SN.log(summary)
+        sendServerCommand(player, SN.CLIENT_MODULE, "CmdResponse", { message = summary })
+        SN.log("=== END OUTFIT TEST ===")
+
+    elseif command == "CmdRequestSync" then
+        -- Client requesting full stats sync (on connect/game start)
+        local siegeData = SN.getWorldData()
+        if not siegeData then return end
+        local syncArgs = {
+            siegeState = siegeData.siegeState,
+            siegeCount = siegeData.siegeCount,
+            nextSiegeDay = siegeData.nextSiegeDay,
+            totalSiegesCompleted = siegeData.totalSiegesCompleted or 0,
+            totalKillsAllTime = siegeData.totalKillsAllTime or 0,
+            killsThisSiege = siegeData.killsThisSiege or 0,
+            bonusKills = siegeData.bonusKills or 0,
+            specialKillsThisSiege = siegeData.specialKillsThisSiege or 0,
+            spawnedThisSiege = siegeData.spawnedThisSiege or 0,
+            targetZombies = siegeData.targetZombies or 0,
+            lastDirection = siegeData.lastDirection or -1,
+            currentWaveIndex = siegeData.currentWaveIndex or 0,
+            currentPhase = siegeData.currentPhase or SN.PHASE_WAVE,
+        }
+        -- Include history entries
+        local totalCompleted = siegeData.totalSiegesCompleted or 0
+        for idx = 1, totalCompleted do
+            local prefix = "history_" .. idx .. "_"
+            syncArgs[prefix .. "kills"] = siegeData[prefix .. "kills"] or 0
+            syncArgs[prefix .. "bonus"] = siegeData[prefix .. "bonus"] or 0
+            syncArgs[prefix .. "specials"] = siegeData[prefix .. "specials"] or 0
+            syncArgs[prefix .. "spawned"] = siegeData[prefix .. "spawned"] or 0
+            syncArgs[prefix .. "target"] = siegeData[prefix .. "target"] or 0
+            syncArgs[prefix .. "day"] = siegeData[prefix .. "day"] or 0
+            syncArgs[prefix .. "dir"] = siegeData[prefix .. "dir"] or -1
+        end
+        sendServerCommand(player, SN.CLIENT_MODULE, "SyncAllStats", syncArgs)
+        SN.log("Sent full stats sync to " .. (player:getUsername() or "player")
+            .. ": siegeCount=" .. siegeData.siegeCount
+            .. " totalCompleted=" .. (siegeData.totalSiegesCompleted or 0)
+            .. " nextSiegeDay=" .. siegeData.nextSiegeDay)
     end
 end
 
@@ -733,6 +974,16 @@ local function onServerTick()
     processSpecialQueue()
     checkVoteTimeout()
 
+    -- Periodic MP sanity: specials sometimes get stuck downed and never die,
+    -- leaving "immortal" corpses. Clean them up server-side.
+    corpseSanityCounter = corpseSanityCounter + 1
+    if corpseSanityCounter >= CORPSE_SANITY_INTERVAL then
+        corpseSanityCounter = 0
+        if siegeData.siegeState == SN.STATE_ACTIVE then
+            specialCorpseSanityTick(siegeZombies)
+        end
+    end
+
     -- ==========================================
     -- SYNC MODDATA TO CLIENTS (periodic)
     -- ==========================================
@@ -741,6 +992,19 @@ local function onServerTick()
         syncTickCounter = 0
         if isServer() then
             ModData.transmit("SiegeNight")
+            -- Push real-time siege data via command (more reliable than ModData on busy servers)
+            local siegeData = SN.getWorldData()
+            if siegeData and siegeData.siegeState == SN.STATE_ACTIVE then
+                sendServerCommand(SN.CLIENT_MODULE, "SiegeTick", {
+                    spawnedThisSiege = siegeData.spawnedThisSiege or 0,
+                    killsThisSiege = siegeData.killsThisSiege or 0,
+                    bonusKills = siegeData.bonusKills or 0,
+                    specialKills = siegeData.specialKillsThisSiege or 0,
+                    currentWaveIndex = currentWaveIndex,
+                    currentPhase = currentPhase,
+                    targetZombies = siegeData.targetZombies or 0,
+                })
+            end
         end
     end
 
@@ -755,11 +1019,26 @@ local function onServerTick()
         local currentHour = SN.getCurrentHour()
 
         if siegeData.siegeState == SN.STATE_IDLE then
-            local isSiegeToday = SN.isSiegeDay(currentDay) or (currentDay >= siegeData.nextSiegeDay)
-            if isSiegeToday and currentHour >= SN.WARNING_HOUR and currentHour < SN.DUSK_HOUR then
+            -- Use nextSiegeDay as the sole authority for when sieges trigger.
+            -- isSiegeDay (modular arithmetic) is only used as a fallback if nextSiegeDay
+            -- was never properly initialized (e.g. migrating from older save).
+            -- This prevents the "siege every day" bug where nextSiegeDay gets stuck at a
+            -- low value due to missed DAWN->IDLE transitions.
+            local isSiegeToday = (currentDay >= siegeData.nextSiegeDay)
+            if not isSiegeToday and SN.isSiegeDay(currentDay) and siegeData.nextSiegeDay <= 0 then
+                -- Fallback: nextSiegeDay was never set (old save migration)
+                isSiegeToday = true
+                SN.log("FALLBACK: nextSiegeDay was " .. siegeData.nextSiegeDay .. ", using isSiegeDay() for day " .. currentDay)
+            end
+            local startHour = SN.getSiegeStartHour()
+            -- Warn on the siege day before the start hour (day-of warning)
+            if isSiegeToday and SN.getSandbox("WarningSignsEnabled") and (not SN.isSiegeTime(currentHour)) and currentHour < startHour then
                 siegeData.siegeState = SN.STATE_WARNING
                 siegeData.siegeCount = math.max(0, SN.getSiegeCount(currentDay))
-                SN.log("WARNING state entered (tick). Siege #" .. siegeData.siegeCount .. " on day " .. currentDay)
+                SN.log("WARNING state entered (tick). Siege #" .. siegeData.siegeCount
+                    .. " on day " .. currentDay
+                    .. " | nextSiegeDay=" .. siegeData.nextSiegeDay
+                    .. " | isSiegeDay()=" .. tostring(SN.isSiegeDay(currentDay)))
                 if isServer() then
                     sendServerCommand(SN.CLIENT_MODULE, "StateChange", {
                         state = SN.STATE_WARNING,
@@ -768,16 +1047,17 @@ local function onServerTick()
                     })
                 end
             end
-            if isSiegeToday and (currentHour >= SN.DUSK_HOUR or currentHour < SN.DAWN_HOUR) then
+            if isSiegeToday and SN.isSiegeTime(currentHour) then
                 siegeData.siegeCount = math.max(0, SN.getSiegeCount(currentDay))
                 local playerList = getPlayerList()
-                enterActiveState(siegeData, "tick-based dusk detection", playerList)
+                enterActiveState(siegeData, "tick-based siege window detection", playerList, "scheduled")
             end
 
         elseif siegeData.siegeState == SN.STATE_WARNING then
-            if currentHour >= SN.DUSK_HOUR then
+            local startHour = SN.getSiegeStartHour()
+            if SN.isSiegeTime(currentHour) and currentHour >= startHour then
                 local playerList = getPlayerList()
-                enterActiveState(siegeData, "tick-based dusk transition", playerList)
+                enterActiveState(siegeData, "tick-based siege window transition", playerList, "scheduled")
             end
 
         elseif siegeData.siegeState == SN.STATE_ACTIVE then
@@ -787,20 +1067,52 @@ local function onServerTick()
             local target = siegeData.targetZombies or 0
             local siegeCleared = target > 0 and totalKills >= target
 
-            -- Dawn safety fallback: force end if it's past dawn hour
-            -- Prevents permanently stuck ACTIVE state after server restart
-            -- Skip if this was a manual/vote triggered daytime siege
+            -- Dawn safety fallback: force end if it's daytime and this was a scheduled siege.
+            -- Player-triggered sieges (manual/vote/debug) ignore time-of-day entirely --
+            -- they run until cleared, stopped, or hard timeout.
+            local playerTriggered = isPlayerTriggered(siegeData)
             local dawnFallback = false
-            if not forcedDaySiege and not siegeCleared and currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
+            local w = getWorld()
+    local nowAge = 0
+    if w and w.getWorldAgeDays then
+        local ok, d = pcall(function() return w:getWorldAgeDays() end)
+        if ok and type(d) == "number" then
+            nowAge = d * 24
+        end
+    end
+            local stopLocked = siegeData.stopLockUntil and nowAge < siegeData.stopLockUntil
+            if not playerTriggered and not siegeCleared and (not SN.isSiegeTime(currentHour)) and not stopLocked then
                 dawnFallback = true
-                SN.log("DAWN FALLBACK: Forcing siege end at hour " .. currentHour
+                SN.log("DAWN FALLBACK: Forcing scheduled siege end at hour " .. currentHour
                     .. " | Kills: " .. kills .. " + " .. bonus .. " bonus/" .. target
                     .. " | Spawned: " .. (siegeData.spawnedThisSiege or 0))
             end
+            -- Hard safety timeout: prevents any siege from running forever.
+            -- Scheduled sieges: 12h. Player-triggered sieges: 23h.
+            -- Use !siege stop to end a player-triggered siege early.
+            if not dawnFallback and not siegeCleared and siegeData.siegeStartHour then
+                local elapsed = currentHour - siegeData.siegeStartHour
+                if elapsed < 0 then elapsed = elapsed + 24 end
+                local maxHours = playerTriggered and 23 or 12
+                if elapsed > maxHours then
+                    dawnFallback = true
+                    SN.log("HARD TIMEOUT: Siege exceeded " .. maxHours .. "h (elapsed=" .. elapsed
+                        .. "h, trigger=" .. (siegeData.siegeTrigger or "?") .. "). Forcing end.")
+                end
+            end
 
             if siegeCleared or dawnFallback then
+
+                if siegeData.ending then return end
+                siegeData.ending = true
+                siegeData.endSeq = (siegeData.endSeq or 0) + 1
+                siegeData.endSeqProcessed = nil
                 siegeData.siegeState = SN.STATE_DAWN
-                dawnTicksRemaining = DAWN_DURATION_TICKS
+    dawnTicksRemaining = DAWN_DURATION_TICKS
+    siegeData.dawnToIdleProcessed = false
+    siegeData.endSeq = (siegeData.endSeq or 0) + 1
+    siegeData.endSeqProcessed = nil
+    siegeData.ending = true
                 if siegeCleared then
                     SN.log("SIEGE CLEARED! Kills: " .. kills .. " + " .. bonus .. " bonus/" .. target
                         .. " | Spawned: " .. siegeData.spawnedThisSiege)
@@ -825,6 +1137,11 @@ local function onServerTick()
     -- ==========================================
     if siegeData.siegeState == SN.STATE_DAWN then
         if dawnTicksRemaining <= 0 then
+            -- Guard: DAWN->IDLE should only run once per siege end
+            if siegeData.dawnToIdleProcessed then return end
+            if siegeData.endSeqProcessed == siegeData.endSeq then return end
+            siegeData.dawnToIdleProcessed = true
+            siegeData.endSeqProcessed = siegeData.endSeq
             dawnTicksRemaining = DAWN_DURATION_TICKS
     SN.debug("Dawn timer was not set - initializing to " .. DAWN_DURATION_TICKS)
         else
@@ -833,7 +1150,11 @@ local function onServerTick()
                 -- Record siege history
                 siegeData.totalSiegesCompleted = (siegeData.totalSiegesCompleted or 0) + 1
                 siegeData.totalKillsAllTime = (siegeData.totalKillsAllTime or 0) + getTotalSiegeKills(siegeData)
-                siegeData.nextSiegeDay = math.floor(SN.getActualDay()) + SN.getSandbox("FrequencyDays")
+                local prevNextSiegeDay = siegeData.nextSiegeDay
+                local nextFreq = SN.getNextFrequency()
+                siegeData.nextSiegeDay = math.floor(SN.getActualDay()) + nextFreq
+                SN.log("DAWN->IDLE: nextSiegeDay " .. prevNextSiegeDay .. " -> " .. siegeData.nextSiegeDay
+                    .. " (currentDay=" .. math.floor(SN.getActualDay()) .. ", freq=" .. nextFreq .. ")")
 
                 -- Store this siege's stats (capped to MAX_SIEGE_HISTORY)
                 local idx = siegeData.totalSiegesCompleted
@@ -858,7 +1179,10 @@ local function onServerTick()
                 end
 
                 siegeData.siegeState = SN.STATE_IDLE
-                forcedDaySiege = false
+                siegeData.siegeTrigger = nil
+                siegeData.dawnToIdleProcessed = false
+                siegeData.ending = false
+                siegeData.stopLockUntil = nil
                 SN.log("Returned to IDLE. Next siege day: " .. siegeData.nextSiegeDay
                     .. " | History recorded: siege #" .. idx)
 
@@ -892,7 +1216,7 @@ local function onServerTick()
                     pmd.SN_SiegeBaseY = player:getY()
                 end
                 -- If player moved more than 200 tiles from their siege base position,
-                -- they probably respawned — don't attract zombies to their new position
+                -- they probably respawned  don't attract zombies to their new position
                 local dx = player:getX() - pmd.SN_SiegeBaseX
                 local dy = player:getY() - pmd.SN_SiegeBaseY
                 local distFromBase = math.sqrt(dx*dx + dy*dy)
@@ -924,18 +1248,31 @@ local function onServerTick()
                 local zombie = entry.zombie
                 local player = entry.player
                 local ok, dead = pcall(function() return zombie:isDead() end)
-                -- Only re-path if the assigned player is still in siegePlayers list
-                local playerActive = false
-                for _, sp in ipairs(siegePlayers) do
-                    if sp == player then playerActive = true; break end
-                end
-                if ok and not dead and playerActive then
-                    zombie:pathToSound(player:getX(), player:getY(), 0)
-                    table.insert(alive, entry)
-                    repathed = repathed + 1
-                elseif ok and not dead then
-                    -- Zombie's player died/respawned — stop tracking, let zombie wander
-                    zombie:setTarget(nil)
+                if not ok then
+                    -- zombie reference invalid, skip
+                elseif dead then
+                    -- already dead, don't re-add
+                else
+                        -- Only re-path if the assigned player is still in siegePlayers list
+                        local playerActive = false
+                        for _, sp in ipairs(siegePlayers) do
+                            if sp == player then playerActive = true; break end
+                        end
+                        if playerActive then
+                            -- downed zombies should not be re-pathed/aggroed (prevents unlootable panting bodies)
+                        if isZombieOnGround(zombie) then
+                            zombie:setTarget(nil)
+                            table.insert(alive, entry)
+                        else
+                            if entry.player then zombie:pathToSound(entry.player:getX(), entry.player:getY(), 0) end
+                            table.insert(alive, entry)
+                            repathed = repathed + 1
+                        end
+                        else
+                            -- Zombie's player died/respawned -- stop tracking, let zombie wander
+                            zombie:setTarget(nil)
+                        end
+                    end
                 end
             end
             siegeZombies = alive
@@ -943,6 +1280,9 @@ local function onServerTick()
                 SN.debug("Re-pathed " .. repathed .. " siege zombies (" .. #siegeZombies .. " tracked)")
             end
         end
+
+        -- Outfit patrol removed: server-side dressInNamedOutfit was CAUSING naked zombies
+        -- by overwriting client-side visuals. addZombiesInOutfit handles clothing correctly.
     else
         if #siegeZombies > 0 then
             -- Clear siege base positions on all players
@@ -970,7 +1310,7 @@ local function onServerTick()
     -- ==========================================
     -- WAVE-BASED SPAWN ENGINE (during ACTIVE only)
     -- ==========================================
-    -- Detect debug-forced state transitions
+    -- Detect debug-forced state transitions (e.g. sandbox editor, external ModData change)
     if siegeData.siegeState == SN.STATE_ACTIVE and lastServerState ~= SN.STATE_ACTIVE then
         if siegeData.spawnedThisSiege == 0 and spawnTickCounter > 1 then
     SN.debug("Detected ACTIVE state entry - resetting spawn counter")
@@ -984,6 +1324,12 @@ local function onServerTick()
             phaseSpawnedCount = 0
             phaseTargetCount = waveStructure[1] and waveStructure[1].waveSize or siegeData.targetZombies
             SN.log("Wave structure built (debug-forced): " .. #waveStructure .. " waves")
+        end
+        -- Debug-forced entries bypass enterActiveState, so siegeTrigger is never set.
+        -- Tag it as "debug" so dawn fallback doesn't immediately kill it.
+        if not siegeData.siegeTrigger then
+            siegeData.siegeTrigger = "debug"
+            SN.log("Debug-forced siege detected -- tagged as trigger=debug")
         end
     end
     lastServerState = siegeData.siegeState
@@ -1057,34 +1403,79 @@ local function onServerTick()
     -- MP visibility fix: if all players are within 100 tiles of each other,
     -- spawn all zombies relative to the centroid so both clients have them loaded.
     -- Otherwise fall back to per-player spawning.
-    local useSharedSpawn = false
-    local centroidPlayer = playerList[1]
-    if #playerList > 1 then
-        local allClose = true
-        for i = 1, #playerList do
-            for j = i + 1, #playerList do
-                local dx = playerList[i]:getX() - playerList[j]:getX()
-                local dy = playerList[i]:getY() - playerList[j]:getY()
-                if math.sqrt(dx*dx + dy*dy) > 100 then
-                    allClose = false
-                    break
+    
+-- MP: build clusters of players by distance so one far-away player does not break shared spawning.
+local function buildPlayerClusters(players, radius)
+    local clusters = {}
+    local visited = {}
+
+    local function dist2(a, b)
+        local dx = a:getX() - b:getX()
+        local dy = a:getY() - b:getY()
+        return dx*dx + dy*dy
+    end
+
+    local r2 = (radius or 200)
+    r2 = r2 * r2
+
+    for i = 1, #players do
+        if not visited[i] then
+            visited[i] = true
+            local queue = { i }
+            local idx = 1
+            local members = {}
+            while idx <= #queue do
+                local qi = queue[idx]
+                idx = idx + 1
+                table.insert(members, players[qi])
+
+                for j = 1, #players do
+                    if not visited[j] then
+                        if dist2(players[qi], players[j]) <= r2 then
+                            visited[j] = true
+                            table.insert(queue, j)
+                        end
+                    end
                 end
             end
-            if not allClose then break end
-        end
-        useSharedSpawn = allClose
-        if useSharedSpawn then
-            -- Pick the player closest to the centroid
-            local cx, cy = 0, 0
-            for _, p in ipairs(playerList) do cx = cx + p:getX(); cy = cy + p:getY() end
-            cx = cx / #playerList; cy = cy / #playerList
-            local bestDist = math.huge
-            for _, p in ipairs(playerList) do
-                local d = math.sqrt((p:getX()-cx)^2 + (p:getY()-cy)^2)
-                if d < bestDist then bestDist = d; centroidPlayer = p end
-            end
+            table.insert(clusters, members)
         end
     end
+
+    return clusters
+end
+
+local function pickCentroidPlayer(players)
+    if #players == 0 then return nil end
+    if #players == 1 then return players[1] end
+
+    local cx, cy = 0, 0
+    for _, p in ipairs(players) do cx = cx + p:getX(); cy = cy + p:getY() end
+    cx = cx / #players; cy = cy / #players
+
+    local best = players[1]
+    local bestDist = math.huge
+    for _, p in ipairs(players) do
+        local d = (p:getX()-cx)*(p:getX()-cx) + (p:getY()-cy)*(p:getY()-cy)
+        if d < bestDist then bestDist = d; best = p end
+    end
+    return best
+end
+local useSharedSpawn = false
+local sharedRadius = SN.getSandbox("SharedSpawnRadius") or 200
+
+-- Pick a single anchor cluster (largest cluster) so one far player does not force per-player spawning.
+local clusters = buildPlayerClusters(playerList, sharedRadius)
+local largest = clusters[1]
+for _, c in ipairs(clusters) do
+    if #c > #largest then largest = c end
+end
+
+local centroidPlayer = pickCentroidPlayer(largest) or playerList[1]
+useSharedSpawn = true
+
+-- Only spawn/aggro around the anchor cluster. Other players can travel to the fight and will see it when close.
+playerList = largest
 
     for _, player in ipairs(playerList) do
         local spawnTarget = useSharedSpawn and centroidPlayer or player
@@ -1104,7 +1495,7 @@ local function onServerTick()
                 specialType = rollSpecialType(siegeData)
             end
 
-            if spawnOneZombie(spawnTarget, siegeData.lastDirection, specialType, healthMult) then
+            if spawnOneZombie(spawnTarget, player, siegeData.lastDirection, specialType, healthMult) then
                 siegeData.spawnedThisSiege = siegeData.spawnedThisSiege + 1
                 phaseSpawnedCount = phaseSpawnedCount + 1
             end
@@ -1126,31 +1517,70 @@ local function onGameTimeLoaded()
         SN.log("Total completed: " .. (siegeData.totalSiegesCompleted or 0))
         SN.log("All-time kills: " .. (siegeData.totalKillsAllTime or 0))
 
-        -- Safety: validate nextSiegeDay isn't stale after server restart
-        -- If nextSiegeDay is in the past AND state is IDLE, push it forward
-        -- Prevents the "siege reset to today" bug after server restart
-        local currentDay = math.floor(SN.getActualDay())
-        if siegeData.siegeState == SN.STATE_IDLE and siegeData.nextSiegeDay <= currentDay then
-            local freq = SN.getSandbox("FrequencyDays")
-            -- Push forward to the next valid siege day from today
-            while siegeData.nextSiegeDay <= currentDay do
-                siegeData.nextSiegeDay = siegeData.nextSiegeDay + freq
-            end
-            SN.log("STALE nextSiegeDay detected - advanced to day " .. siegeData.nextSiegeDay)
-        end
+        -- Safety: validate nextSiegeDay isn''t stale after server restart
+-- Only advance if it is truly in the past.
+-- If nextSiegeDay == currentDay and we are IDLE, that is a valid "siege today" schedule.
+local currentDay = math.floor(SN.getActualDay())
+local stale = false
+if siegeData.siegeState == SN.STATE_IDLE then
+    stale = (siegeData.nextSiegeDay < currentDay)
+elseif siegeData.siegeState == SN.STATE_DAWN then
+    stale = (siegeData.nextSiegeDay <= currentDay)
+end
 
-        -- If server restarted mid-siege (state is ACTIVE/WARNING but it's daytime), reset to IDLE
-        if siegeData.siegeState == SN.STATE_ACTIVE or siegeData.siegeState == SN.STATE_WARNING then
+if stale then
+    local oldNext = siegeData.nextSiegeDay
+    -- Push forward to the next valid siege day from today.
+    -- If frequency is randomized, re-roll each step.
+    while siegeData.nextSiegeDay < currentDay do
+        siegeData.nextSiegeDay = siegeData.nextSiegeDay + SN.getNextFrequency()
+    end
+    if siegeData.siegeState == SN.STATE_DAWN and siegeData.nextSiegeDay <= currentDay then
+        siegeData.nextSiegeDay = currentDay + SN.getNextFrequency()
+    end
+    SN.log("STALE nextSiegeDay detected (was " .. oldNext .. ") - advanced to day " .. siegeData.nextSiegeDay)
+end
+
+        -- If server restarted mid-siege during daytime, check the trigger type:
+        -- Scheduled sieges: reset to IDLE (shouldn't be active during day)
+        -- Player-triggered sieges: keep alive (they chose to start during day)
+        if siegeData.siegeState == SN.STATE_ACTIVE or siegeData.siegeState == SN.STATE_WARNING or siegeData.siegeState == SN.STATE_DAWN then
             local currentHour = SN.getCurrentHour()
-            if currentHour >= SN.DAWN_HOUR and currentHour < SN.DUSK_HOUR then
-                SN.log("Server restarted mid-siege during daytime -- resetting to IDLE")
-                siegeData.siegeState = SN.STATE_IDLE
-                siegeData.nextSiegeDay = currentDay + SN.getSandbox("FrequencyDays")
-                SN.log("Next siege pushed to day " .. siegeData.nextSiegeDay)
+            if not SN.isSiegeTime(currentHour) then
+                if isPlayerTriggered(siegeData) then
+                    SN.log("Server restarted mid-siege during daytime (trigger="
+                        .. (siegeData.siegeTrigger or "?") .. ") -- keeping active")
+                else
+                    SN.log("Server restarted mid-scheduled-siege during daytime -- resetting to IDLE")
+                    siegeData.siegeState = SN.STATE_IDLE
+                siegeData.siegeTrigger = nil
+                siegeData.dawnToIdleProcessed = false
+                siegeData.ending = false
+                siegeData.stopLockUntil = nil
+                    if siegeData.nextSiegeDay <= currentDay then
+                        siegeData.nextSiegeDay = currentDay + SN.getNextFrequency()
+                    end
+                    SN.log("Next siege day: " .. siegeData.nextSiegeDay)
+                end
             end
+        end
+        -- Immediately transmit to all connected clients so they get persisted stats
+        if isServer() then
+            ModData.transmit("SiegeNight")
+            SN.log("Transmitted ModData to clients on load")
         end
     else
         SN.log("World data not available yet")
+    end
+end
+
+-- ==========================================
+-- Transmit ModData to newly connected players
+-- ==========================================
+local function onPlayerConnect(player)
+    if isServer() then
+        ModData.transmit("SiegeNight")
+        SN.log("Transmitted ModData to client on connect: " .. tostring(player:getUsername()))
     end
 end
 
@@ -1161,3 +1591,8 @@ Events.OnGameTimeLoaded.Add(onGameTimeLoaded)
 Events.OnTick.Add(onServerTick)
 Events.OnZombieDead.Add(onZombieDead)
 Events.OnClientCommand.Add(onClientCommand)
+Events.OnConnected.Add(onPlayerConnect)
+
+
+
+
