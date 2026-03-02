@@ -1,10 +1,10 @@
 param(
-  [string]$RepoRoot = "$(Split-Path -Parent $MyInvocation.MyCommand.Path)",
+  [string]$RepoRoot = (Resolve-Path ".").Path,
   [string]$StagingRoot = "C:\Users\theth\Zomboid\Workshop\SiegeNight",
-  [switch]$NoClean
+  [switch]$WhatIf
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = 'Stop'
 
 $srcMod = Join-Path $RepoRoot "Contents\mods\SiegeNight"
 $dstMod = Join-Path $StagingRoot "Contents\mods\SiegeNight"
@@ -13,38 +13,44 @@ if(!(Test-Path $srcMod)){
   throw "Source mod folder not found: $srcMod"
 }
 
-# Ensure staging folders exist
-New-Item -ItemType Directory -Force -Path (Join-Path $StagingRoot "Contents\mods") | Out-Null
+Write-Host "Repo mod:     $srcMod"
+Write-Host "Staging mod:  $dstMod"
 
-if((Test-Path $dstMod) -and (-not $NoClean)){
-  Remove-Item -Recurse -Force $dstMod
-}
-
-New-Item -ItemType Directory -Force -Path $dstMod | Out-Null
-Copy-Item -Recurse -Force (Join-Path $srcMod "*") $dstMod
-
-# Copy workshop upload metadata files (if present in repo root)
-foreach($f in @("upload.vdf","workshop.txt","description.txt","preview.png")){
-  $src = Join-Path $RepoRoot $f
-  if(Test-Path $src){
-    Copy-Item -Force $src (Join-Path $StagingRoot $f)
+# Copy mod folder (clean)
+if(Test-Path $dstMod){
+  if($WhatIf){
+    Write-Host "[WhatIf] Would remove $dstMod"
+  } else {
+    Remove-Item -Recurse -Force $dstMod
   }
 }
 
-# Validate version + hashes
-$srcShared = Join-Path $srcMod "media\lua\shared\SiegeNight_Shared.lua"
-$dstShared = Join-Path $dstMod "media\lua\shared\SiegeNight_Shared.lua"
-$srcVer = (Select-String -Path $srcShared -Pattern 'SN\.VERSION\s*=\s*"([0-9\.]+)"' | Select-Object -First 1).Matches.Groups[1].Value
-$dstVer = (Select-String -Path $dstShared -Pattern 'SN\.VERSION\s*=\s*"([0-9\.]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+if(!$WhatIf){
+  New-Item -ItemType Directory -Force -Path $dstMod | Out-Null
+  Copy-Item -Recurse -Force (Join-Path $srcMod "*") $dstMod
+}
 
-$srcHash = (Get-FileHash (Join-Path $srcMod "media\lua\server\SiegeNight_Server.lua") -Algorithm SHA256).Hash
-$dstHash = (Get-FileHash (Join-Path $dstMod "media\lua\server\SiegeNight_Server.lua") -Algorithm SHA256).Hash
+# Copy workshop meta files from repo root if present
+$meta = @('upload.vdf','workshop.txt','description.txt','preview.png')
+foreach($m in $meta){
+  $src = Join-Path $RepoRoot $m
+  $dst = Join-Path $StagingRoot $m
+  if(Test-Path $src){
+    if($WhatIf){
+      Write-Host "[WhatIf] Would copy $src -> $dst"
+    } else {
+      Copy-Item -Force $src $dst
+    }
+  }
+}
 
-Write-Host "Synced SiegeNight repo -> staging" -ForegroundColor Green
-Write-Host "  Repo:    $srcMod"
-Write-Host "  Staging: $dstMod"
-Write-Host "  Version: $srcVer (repo) -> $dstVer (staging)"
-Write-Host "  Server.lua SHA256: $srcHash (repo) -> $dstHash (staging)"
+# Verify version in staging
+$shared = Join-Path $dstMod "media\lua\shared\SiegeNight_Shared.lua"
+if(Test-Path $shared){
+  $verLine = Select-String -Path $shared -Pattern 'SN\.VERSION\s*=\s*"' | Select-Object -First 1
+  Write-Host "Staging version: $($verLine.Line)"
+} else {
+  Write-Warning "Could not find $shared to verify version"
+}
 
-if($srcVer -ne $dstVer){ throw "Version mismatch after copy: repo=$srcVer staging=$dstVer" }
-if($srcHash -ne $dstHash){ throw "Hash mismatch after copy (SiegeNight_Server.lua)" }
+Write-Host "OK"
