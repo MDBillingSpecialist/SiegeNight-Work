@@ -20,6 +20,68 @@ local SN = require("SiegeNight_Shared")
 -- Safety: this file must never run on MP clients.
 -- (Singleplayer has isClient()==false, so SP still works.)
 if isClient and isClient() then return end
+
+-- ==========================================
+-- MP CLUSTER HELPERS (module scope)
+-- ==========================================
+
+-- Build clusters of players by distance so one far-away player does not break shared spawning.
+local function buildPlayerClusters(players, radius)
+    local clusters = {}
+    local visited = {}
+
+    local function dist2(a, b)
+        local dx = a:getX() - b:getX()
+        local dy = a:getY() - b:getY()
+        return dx*dx + dy*dy
+    end
+
+    local r2 = (radius or 200)
+    r2 = r2 * r2
+
+    for i = 1, #players do
+        if not visited[i] then
+            visited[i] = true
+            local queue = { i }
+            local idx = 1
+            local members = {}
+            while idx <= #queue do
+                local qi = queue[idx]
+                idx = idx + 1
+                table.insert(members, players[qi])
+
+                for j = 1, #players do
+                    if not visited[j] then
+                        if dist2(players[qi], players[j]) <= r2 then
+                            visited[j] = true
+                            table.insert(queue, j)
+                        end
+                    end
+                end
+            end
+            table.insert(clusters, members)
+        end
+    end
+
+    return clusters
+end
+
+local function pickCentroidPlayer(players)
+    if #players == 0 then return nil end
+    if #players == 1 then return players[1] end
+
+    local cx, cy = 0, 0
+    for _, p in ipairs(players) do cx = cx + p:getX(); cy = cy + p:getY() end
+    cx = cx / #players; cy = cy / #players
+
+    local best = players[1]
+    local bestDist = math.huge
+    for _, p in ipairs(players) do
+        local d = (p:getX()-cx)*(p:getX()-cx) + (p:getY()-cy)*(p:getY()-cy)
+        if d < bestDist then bestDist = d; best = p end
+    end
+    return best
+end
 -- ==========================================
 -- LOCAL STATE
 -- ==========================================
@@ -997,7 +1059,7 @@ local function onServerTick()
         if isServer() then
             ModData.transmit("SiegeNight")
             -- Push real-time siege data via command (more reliable than ModData on busy servers)
-            local siegeData = SN.getWorldData()
+            -- Reuse outer siegeData (avoid shadowing)
             if siegeData and siegeData.siegeState == SN.STATE_ACTIVE then
                 sendServerCommand(SN.CLIENT_MODULE, "SiegeTick", {
                     spawnedThisSiege = siegeData.spawnedThisSiege or 0,
@@ -1417,82 +1479,24 @@ local function onServerTick()
 
     local zombiesPerPlayer = math.max(1, math.floor(batchSize / #playerList))
 
-    -- MP visibility fix: if all players are within 100 tiles of each other,
-    -- spawn all zombies relative to the centroid so both clients have them loaded.
-    -- Otherwise fall back to per-player spawning.
-    
--- MP: build clusters of players by distance so one far-away player does not break shared spawning.
-local function buildPlayerClusters(players, radius)
-    local clusters = {}
-    local visited = {}
+    -- MP visibility fix:
+    -- Build clusters of nearby players so one far-away player doesn't force per-player spawning.
+    -- Pick the largest cluster as the "anchor" group for the siege/mini-horde.
+    local useSharedSpawn = false
+    local centroidPlayer = playerList[1]
+    local sharedRadius = SN.getSandbox("SharedSpawnRadius") or 200
 
-    local function dist2(a, b)
-        local dx = a:getX() - b:getX()
-        local dy = a:getY() - b:getY()
-        return dx*dx + dy*dy
+    local clusters = buildPlayerClusters(playerList, sharedRadius)
+    local largest = clusters[1] or playerList
+    for _, c in ipairs(clusters) do
+        if #c > #largest then largest = c end
     end
 
-    local r2 = (radius or 200)
-    r2 = r2 * r2
+    centroidPlayer = pickCentroidPlayer(largest) or playerList[1]
+    useSharedSpawn = true
 
-    for i = 1, #players do
-        if not visited[i] then
-            visited[i] = true
-            local queue = { i }
-            local idx = 1
-            local members = {}
-            while idx <= #queue do
-                local qi = queue[idx]
-                idx = idx + 1
-                table.insert(members, players[qi])
-
-                for j = 1, #players do
-                    if not visited[j] then
-                        if dist2(players[qi], players[j]) <= r2 then
-                            visited[j] = true
-                            table.insert(queue, j)
-                        end
-                    end
-                end
-            end
-            table.insert(clusters, members)
-        end
-    end
-
-    return clusters
-end
-
-local function pickCentroidPlayer(players)
-    if #players == 0 then return nil end
-    if #players == 1 then return players[1] end
-
-    local cx, cy = 0, 0
-    for _, p in ipairs(players) do cx = cx + p:getX(); cy = cy + p:getY() end
-    cx = cx / #players; cy = cy / #players
-
-    local best = players[1]
-    local bestDist = math.huge
-    for _, p in ipairs(players) do
-        local d = (p:getX()-cx)*(p:getX()-cx) + (p:getY()-cy)*(p:getY()-cy)
-        if d < bestDist then bestDist = d; best = p end
-    end
-    return best
-end
-local useSharedSpawn = false
-local sharedRadius = SN.getSandbox("SharedSpawnRadius") or 200
-
--- Pick a single anchor cluster (largest cluster) so one far player does not force per-player spawning.
-local clusters = buildPlayerClusters(playerList, sharedRadius)
-local largest = clusters[1]
-for _, c in ipairs(clusters) do
-    if #c > #largest then largest = c end
-end
-
-local centroidPlayer = pickCentroidPlayer(largest) or playerList[1]
-useSharedSpawn = true
-
--- Only spawn/aggro around the anchor cluster. Other players can travel to the fight and will see it when close.
-playerList = largest
+    -- Only spawn/aggro around the anchor cluster. Other players can travel to the fight and will see it when close.
+    playerList = largest
 
     for _, player in ipairs(playerList) do
         local spawnTarget = useSharedSpawn and centroidPlayer or player

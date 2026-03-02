@@ -5,7 +5,7 @@
     "contentfolder"     "C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents"
     "previewfile"       "C:\Users\theth\Zomboid\Workshop\SiegeNight\preview.png"
     "descriptionfile"   "C:\Users\theth\Zomboid\Workshop\SiegeNight\description.txt"
-    "changenote"        "v2.5.39\n- Fixed: SiegeNight_Server.lua cleanup (removed duplicated/garbled DAWN/IDLE transition logic + indentation corruption that could cause parse errors on dedi).\n- MP (dedicated): server-only guards + mini-horde gunfire cap reset + special corpse sanity tick (from 2.5.38)."
+    "changenote"        "v2.5.40\n- Mini-hordes: noise threshold fallback now matches sandbox default (80) to prevent over-triggering before SandboxVars loads.\n- MP: move player-cluster/centroid helpers to module scope (avoids per-tick closure allocations).\n- Cleanup: remove shadowed siegeData in sync block."
 }
 
 

@@ -9,7 +9,7 @@ local SN = {}
 -- ==========================================
 -- VERSION
 -- ==========================================
-SN.VERSION = "2.5.39"
+SN.VERSION = "2.5.40"
 SN.MOD_ID = "SiegeNight"
 SN.CLIENT_MODULE = "SiegeNightModule"
 
@@ -130,7 +130,7 @@ SN.DEFAULTS = {
     TankHealthMultiplier = 5.0,
     -- Mini-hordes
     MiniHorde_Enabled = true,
-    MiniHorde_NoiseThreshold = 50,
+    MiniHorde_NoiseThreshold = 80,
     MiniHorde_MaxZombies = 50,
     MiniHorde_MinZombies = 10,
     MiniHorde_CooldownMinutes = 30,
