@@ -24,14 +24,15 @@ Sandbox_EN = {
     SN_DirectionalAttacks = "Directional Attacks",
     SN_DirectionalAttacks_tooltip = "Zombies primarily attack from one direction each siege. Direction announced at siege start.",
     SN_SpawnDistance = "Spawn Distance",
-    SN_SpawnDistance_tooltip = "How far from the player zombies spawn (in tiles). Higher = more warning time. For huge bases, you may need to raise this.",`n    SN_SharedSpawnRadius = "MP Shared Spawn Radius",
+    SN_SpawnDistance_tooltip = "How far from the player zombies spawn (in tiles). Higher = more warning time. For huge bases, you may need to raise this.",
+    SN_SharedSpawnRadius = "MP Shared Spawn Radius",
     SN_SharedSpawnRadius_tooltip = "MP only. If all players are within this many tiles, SiegeNight spawns near the group centroid so everyone sees the horde. Higher = less chance of split/invisible hordes.",
     SN_SiegeStartHour = "Siege Start Hour",
     SN_SiegeStartHour_tooltip = "In-game hour the siege starts on a siege day. Default: 20 (8 PM).",
     SN_SiegeEndHour = "Siege End Hour",
     SN_SiegeEndHour_tooltip = "In-game hour the siege ends. Default: 6 (6 AM). If you set a start/end window, warnings happen on the siege day before the start hour.",
     SN_WaveBreakSeconds = "Max Wave Break (Seconds)",
-    SN_WaveBreakSeconds_tooltip = "Caps the break duration between waves. 0 = use automatic scaling (3-10 min based on horde size). Set a value like 90 or 120 to keep breaks short even on large sieges.","}}]}
+    SN_WaveBreakSeconds_tooltip = "Caps the break duration between waves. 0 = use automatic scaling (3-10 min based on horde size). Set a value like 90 or 120 to keep breaks short even on large sieges.",
 
     -- Special zombie settings
     SN_SpecialZombiesEnabled = "Enable Special Zombies",

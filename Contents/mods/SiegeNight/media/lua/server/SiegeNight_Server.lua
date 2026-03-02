@@ -470,10 +470,10 @@ local specialQueue = {}
 --- Actual stat changes are queued and applied one-per-tick.
 local function applySpecialStats(zombie, specialType)
 
-        -- DEFENSIVE SPECIAL TAG: ensure sprinters/breakers/tanks are tagged for MP corpse sanity
-        if specialType and specialType ~= "normal" then
-            zombie:getModData().SN_SpecialType = specialType
-        end
+    -- DEFENSIVE SPECIAL TAG: ensure sprinters/breakers/tanks are tagged for MP corpse sanity
+    if specialType and specialType ~= "normal" then
+        zombie:getModData().SN_SpecialType = specialType
+    end
     if specialType == "normal" then return end
 
     -- Tag the zombie for identification immediately
@@ -1393,7 +1393,7 @@ local function onServerTick()
     -- Detect debug-forced state transitions (e.g. sandbox editor, external ModData change)
     if siegeData.siegeState == SN.STATE_ACTIVE and lastServerState ~= SN.STATE_ACTIVE then
         if siegeData.spawnedThisSiege == 0 and spawnTickCounter > 1 then
-    SN.debug("Detected ACTIVE state entry - resetting spawn counter")
+            SN.debug("Detected ACTIVE state entry - resetting spawn counter")
             spawnTickCounter = 0
         end
         -- If wave structure wasn't built (debug-forced), build it now
@@ -1545,24 +1545,24 @@ local function onGameTimeLoaded()
         if type(siegeData.nextSiegeDay) ~= "number" then siegeData.nextSiegeDay = 0 end
         local currentDay = math.floor(SN.getActualDay())
         local stale = false
-if siegeData.siegeState == SN.STATE_IDLE then
-    stale = (siegeData.nextSiegeDay < currentDay)
-elseif siegeData.siegeState == SN.STATE_DAWN then
-    stale = (siegeData.nextSiegeDay <= currentDay)
-end
+        if siegeData.siegeState == SN.STATE_IDLE then
+            stale = (siegeData.nextSiegeDay < currentDay)
+        elseif siegeData.siegeState == SN.STATE_DAWN then
+            stale = (siegeData.nextSiegeDay <= currentDay)
+        end
 
-if stale then
-    local oldNext = siegeData.nextSiegeDay
-    -- Push forward to the next valid siege day from today.
-    -- If frequency is randomized, re-roll each step.
-    while siegeData.nextSiegeDay < currentDay do
-        siegeData.nextSiegeDay = siegeData.nextSiegeDay + SN.getNextFrequency()
-    end
-    if siegeData.siegeState == SN.STATE_DAWN and siegeData.nextSiegeDay <= currentDay then
-        siegeData.nextSiegeDay = currentDay + SN.getNextFrequency()
-    end
-    SN.log("STALE nextSiegeDay detected (was " .. oldNext .. ") - advanced to day " .. siegeData.nextSiegeDay)
-end
+        if stale then
+            local oldNext = siegeData.nextSiegeDay
+            -- Push forward to the next valid siege day from today.
+            -- If frequency is randomized, re-roll each step.
+            while siegeData.nextSiegeDay < currentDay do
+                siegeData.nextSiegeDay = siegeData.nextSiegeDay + SN.getNextFrequency()
+            end
+            if siegeData.siegeState == SN.STATE_DAWN and siegeData.nextSiegeDay <= currentDay then
+                siegeData.nextSiegeDay = currentDay + SN.getNextFrequency()
+            end
+            SN.log("STALE nextSiegeDay detected (was " .. oldNext .. ") - advanced to day " .. siegeData.nextSiegeDay)
+        end
 
         -- If server restarted mid-siege during daytime, check the trigger type:
         -- Scheduled sieges: reset to IDLE (shouldn't be active during day)
@@ -1576,10 +1576,10 @@ end
                 else
                     SN.log("Server restarted mid-scheduled-siege during daytime -- resetting to IDLE")
                     siegeData.siegeState = SN.STATE_IDLE
-                siegeData.siegeTrigger = nil
-                siegeData.dawnToIdleProcessed = false
-                siegeData.ending = false
-                siegeData.stopLockUntil = nil
+                    siegeData.siegeTrigger = nil
+                    siegeData.dawnToIdleProcessed = false
+                    siegeData.ending = false
+                    siegeData.stopLockUntil = nil
                     if siegeData.nextSiegeDay <= currentDay then
                         siegeData.nextSiegeDay = currentDay + SN.getNextFrequency()
                     end
@@ -1614,7 +1614,10 @@ Events.OnGameTimeLoaded.Add(onGameTimeLoaded)
 Events.OnTick.Add(onServerTick)
 Events.OnZombieDead.Add(onZombieDead)
 Events.OnClientCommand.Add(onClientCommand)
-Events.OnConnected.Add(onPlayerConnect)
+-- OnConnected is CLIENT-SIDE only. Use OnConnectedPlayer for server-side player join detection.
+if Events.OnConnectedPlayer then
+    Events.OnConnectedPlayer.Add(onPlayerConnect)
+end
 
 
 
