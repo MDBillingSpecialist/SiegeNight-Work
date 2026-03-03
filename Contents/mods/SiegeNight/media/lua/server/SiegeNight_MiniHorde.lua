@@ -392,10 +392,9 @@ local function onMiniHordeTick()
                             local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.5)
                             if zombies and zombies:size() > 0 then
                                 local zombie = zombies:get(0)
-                                -- Fix: redundantly dress zombie server-side to prevent naked corpses on MP
-                                if isServer() then
-                                    zombie:dressInNamedOutfit(outfit)
-                                end
+                                -- IMPORTANT: do NOT dress zombies server-side.
+                                -- addZombiesInOutfit already applies clothing and server-side dressInNamedOutfit
+                                -- can override client visuals / cause naked regressions in MP.
                                 -- MP safety: player/zombie objects can be stale between ticks
                                 local p = job.player
                                 local okP, pX = pcall(function() return p and p:getX() end)

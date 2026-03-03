@@ -384,6 +384,7 @@ function SN.initWorldData()
     -- Migrate: if save has old CLEANUP state, move to IDLE
     if data.siegeState == "CLEANUP" then data.siegeState = SN.STATE_IDLE end
     SN._worldData = data
+    SN.log("SiegeNight loaded (v" .. tostring(SN.VERSION) .. ")")
     SN.log("Global ModData initialized (server/SP)")
     return data
 end

@@ -113,6 +113,13 @@ SP doesn't have a chat window, so use the built-in debug menu instead:
 
 [h1]📋 Changelog[/h1]
 
+[b]v2.5.41[/b]
+[list]
+[*] Fix: dedicated server not loading (Lua parse errors) — cleaned up server-side repathing loop blocks and hardened server-only file guards.
+[*] Fix: mini-horde gunfire heat cap now actually caps per 10-minute window.
+[*] Fix: special zombie corpse sanity tick during active siege to clean up stuck downed specials.
+[/list]
+
 [b]v2.5.22[/b]
 [list]
 [*] Fixed: tank spawning could error on some dedicated servers ("__le not defined") and break siege ticks.
