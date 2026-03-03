@@ -118,7 +118,7 @@ SP doesn't have a chat window, so use the built-in debug menu instead:
 [*] MP: siege zombies now always spawn with base health 1.0 (don’t pass boosted health into addZombiesInOutfit). Specials get extra health only via server-side stat sync. (Attempt to fix dead-but-moving / unlootable bodies.)
 [/list]
 
-[b]v2.5.42[/b]
+[b]v2.5.43[/b]
 [list]
 [*] MP: avoid client/server desync by **not setting zombie health client-side** when syncing specials (attempt to fix "killed but still moving" / unlootable mod-spawned zombies).
 [/list]
