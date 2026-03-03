@@ -259,7 +259,7 @@ local function forceSpawn10()
                 local square = getWorld():getCell():getGridSquare(fx, fy, 0)
                 if square and square:isFree(false) then
                     local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
-                    local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.5)
+                    local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
                     if zombies and zombies:size() > 0 then
                         local z = zombies:get(0)
                         z:pathToCharacter(player)
@@ -297,10 +297,11 @@ local function forceSpawnSpecials()
             local dist = math.sqrt((fx - px)^2 + (fy - py)^2)
             local square = dist >= 10 and getWorld():getCell():getGridSquare(fx, fy, 0) or nil
             if square and square:isFree(false) then
-                local healthMult = 1.5
-                if specialType == "tank" then
-                    healthMult = SN.getSandbox("TankHealthMultiplier")
-                end
+                -- Keep base spawn health at 1.0 to avoid MP corpse/loot desync.
+                -- Apply extra health via server-side stat edits in real gameplay; debug spawns should match that.
+                -- Always spawn with base health = 1.0 in MP to avoid corpse/loot desync.
+                -- Even for tanks, we avoid passing boosted health via addZombiesInOutfit.
+                local healthMult = 1.0
 
                 local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
                 local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, healthMult)
@@ -380,7 +381,7 @@ local function forceMiniHorde()
         local square = getWorld():getCell():getGridSquare(fx, fy, 0)
         if square and square:isFree(false) then
             local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
-            local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.5)
+            local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
             if zombies and zombies:size() > 0 then
                 local z = zombies:get(0)
                 z:pathToCharacter(player)

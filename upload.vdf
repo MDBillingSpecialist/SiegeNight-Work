@@ -5,7 +5,7 @@
     "contentfolder"     "C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents"
     "previewfile"       "C:\Users\theth\Zomboid\Workshop\SiegeNight\preview.png"
     "descriptionfile"   "C:\Users\theth\Zomboid\Workshop\SiegeNight\description.txt"
-    "changenote"        "v2.5.41\n- Fix: dedicated server not loading (Lua parse error) - cleaned up repathing loop missing/misaligned end blocks."
+    "changenote"        "v2.5.43\n- MP: ensure SiegeNight spawns always use base health 1.0 (don’t pass boosted health into addZombiesInOutfit). Specials get health via server-side stat sync only. (Attempt to fix 'dead-but-moving' / unlootable bodies)."
 }
 
 

@@ -574,10 +574,12 @@ local function spawnOneZombie(spawnPlayer, aggroPlayer, primaryDir, specialType,
         return false
     end
 
-    healthMult = healthMult or 1.5
+    -- IMPORTANT (MP): keep base spawn health at 1.0 to avoid client/server health desync.
+    -- Apply extra health only via explicit server stat edits + SyncSpecial.
+    -- Do NOT pass boosted healthMult into addZombiesInOutfit.
     local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
 
-    local zombies = addZombiesInOutfit(spawnX, spawnY, 0, 1, outfit, 50, false, false, false, false, false, false, healthMult)
+    local zombies = addZombiesInOutfit(spawnX, spawnY, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
     if zombies and zombies:size() > 0 then
         local zombie = zombies:get(0)
         -- Store outfit in moddata (for kill tracking, future loot tier system)
@@ -1507,7 +1509,7 @@ local function onServerTick()
             if phaseSpawnedCount >= phaseTargetCount then break end
 
             local specialType = "normal"
-            local healthMult = 1.5
+            local healthMult = 1.0
 
             if shouldSpawnTank(siegeData) then
                 specialType = "tank"

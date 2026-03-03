@@ -337,7 +337,9 @@ local function onServerCommand(module, command, args)
                 for i = 0, zombies:size() - 1 do
                     local z = zombies:get(i)
                     if z and z:getOnlineID() == onlineID then
-                        if health then z:setHealth(health) end
+                        -- NOTE: Do NOT set health client-side in MP.
+                        -- Doing so can desync client perception vs server authority ("killed but still moving" / unlootable).
+                        -- Server already owns health via spawn params; clients only need speed/visual tuning.
                         if speedMod then z:setSpeedMod(speedMod) end
                         break
                     end

@@ -113,11 +113,22 @@ SP doesn't have a chat window, so use the built-in debug menu instead:
 
 [h1]📋 Changelog[/h1]
 
+[b]v2.5.43[/b]
+[list]
+[*] MP: siege zombies now always spawn with base health 1.0 (don’t pass boosted health into addZombiesInOutfit). Specials get extra health only via server-side stat sync. (Attempt to fix dead-but-moving / unlootable bodies.)
+[/list]
+
+[b]v2.5.42[/b]
+[list]
+[*] MP: avoid client/server desync by **not setting zombie health client-side** when syncing specials (attempt to fix "killed but still moving" / unlootable mod-spawned zombies).
+[/list]
+
 [b]v2.5.41[/b]
 [list]
-[*] Fix: dedicated server not loading (Lua parse errors) — cleaned up server-side repathing loop blocks and hardened server-only file guards.
+[*] Fix: dedicated server not loading (Lua parse errors) - cleaned up server-side repathing loop blocks and hardened server-only file guards.
 [*] Fix: mini-horde gunfire heat cap now actually caps per 10-minute window.
 [*] Fix: special zombie corpse sanity tick during active siege to clean up stuck downed specials.
+[*] Fix: MP loot/desync - stop spawning siege/mini-horde zombies with boosted base health (prevents client/server "dead but still moving" + unlootable bodies).
 [/list]
 
 [b]v2.5.22[/b]

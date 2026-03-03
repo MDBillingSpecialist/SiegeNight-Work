@@ -9,7 +9,7 @@ local SN = {}
 -- ==========================================
 -- VERSION
 -- ==========================================
-SN.VERSION = "2.5.41"
+SN.VERSION = "2.5.43"
 SN.MOD_ID = "SiegeNight"
 SN.CLIENT_MODULE = "SiegeNightModule"
 

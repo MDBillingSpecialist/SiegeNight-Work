@@ -389,7 +389,8 @@ local function onMiniHordeTick()
                         local square = getWorld():getCell():getGridSquare(fx, fy, 0)
                         if square and square:isFree(false) and square:isOutside() and not isInsidePlayerArea(square) then
                             local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
-                            local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.5)
+                            -- MP: keep base spawn health at 1.0 (avoid client/server health desync).
+                            local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
                             if zombies and zombies:size() > 0 then
                                 local zombie = zombies:get(0)
                                 -- IMPORTANT: do NOT dress zombies server-side.

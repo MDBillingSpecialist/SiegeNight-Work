@@ -1,4 +1,4 @@
-version=2.5.41
+version=2.5.43
 id=3669589584
 title=Siege Night
 description=[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-title.png[/img]
@@ -48,7 +48,7 @@ description=The heat system scales with player count in multiplayer, so bigger g
 description=
 description=[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
 description=
-description=[h1]Changelog[/h1]`r`ndescription=`r`ndescription=[b]v2.5.41[/b]
+description=[h1]Changelog[/h1]`r`ndescription=`r`ndescription=[b]v2.5.43[/b]
 description=[list]
 description=[*] MP (dedicated): hotfix to prevent server-only logic from executing on clients (fixes "invisible" mini-hordes / per-player desync reports).
 description=[*] Mini-hordes: gunfire heat cap now resets each 10-minute tick (cap actually works).
