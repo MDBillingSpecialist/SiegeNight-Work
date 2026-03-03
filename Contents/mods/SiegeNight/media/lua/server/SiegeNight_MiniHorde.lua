@@ -23,7 +23,8 @@
     Heat decays by 4 every 10 minutes. When heat >= threshold, a mini-horde triggers.
 ]]
 
-local SN = require("SiegeNight_Shared")
+local okSN, SN = pcall(require, "SiegeNight_Shared")
+if not okSN or type(SN) ~= "table" then return end
 
 -- Safety: this file must never run on MP clients.
 -- (Singleplayer has isClient()==false, so SP still works.)
