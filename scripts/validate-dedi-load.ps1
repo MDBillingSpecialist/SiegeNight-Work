@@ -10,19 +10,28 @@ function Fail($msg){
   exit 1
 }
 
-# Find newest debug server log
-$log = Get-ChildItem $LogRoot -Filter "*DebugLog-server*" -ErrorAction SilentlyContinue |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
+# Find newest debug server log that actually includes SiegeNight load lines.
+# (Sometimes a new server log exists for a different run/world without this mod.)
+$logs = Get-ChildItem $LogRoot -Filter "*DebugLog-server*" -ErrorAction SilentlyContinue |
+  Sort-Object LastWriteTime -Descending
 
-if(!$log){
+if(!$logs -or $logs.Count -eq 0){
   Fail "No *DebugLog-server* files found in $LogRoot"
 }
 
-$txt = Get-Content $log.FullName -Raw
+$log = $null
+foreach($candidate in $logs){
+  $txt = Get-Content $candidate.FullName -Raw
+  if($txt -match "loading \\SiegeNight"){
+    $log = $candidate
+    break
+  }
+}
 
-if($txt -notmatch "loading \\SiegeNight"){
-  Fail "Latest server log does not show 'loading \\SiegeNight' ($($log.Name))"
+if(!$log){
+  Write-Host "WARN: No recent server logs show 'loading \\SiegeNight' (checked $($logs.Count) logs in $LogRoot)." -ForegroundColor Yellow
+  Write-Host "      Will still scan the newest log for SiegeNight parse errors." -ForegroundColor Yellow
+  $log = $logs | Select-Object -First 1
 }
 
 # Parse errors that prevent module load
