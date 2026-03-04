@@ -113,6 +113,12 @@ SP doesn't have a chat window, so use the built-in debug menu instead:
 
 [h1]📋 Changelog[/h1]
 
+[b]v2.5.44[/b]
+[list]
+[*] Mini-hordes: MiniHorde_MaxZombies is now an absolute cap (player scaling can’t exceed it).
+[*] Mini-hordes: added global cooldown to prevent constant triggers on large MP dedicated servers.
+[/list]
+
 [b]v2.5.43[/b]
 [list]
 [*] MP: avoid client/server desync by **not setting zombie health client-side** when syncing specials.

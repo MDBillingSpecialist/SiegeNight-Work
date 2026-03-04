@@ -5,7 +5,7 @@
     "contentfolder"     "C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents"
     "previewfile"       "C:\Users\theth\Zomboid\Workshop\SiegeNight\preview.png"
     "descriptionfile"   "C:\Users\theth\Zomboid\Workshop\SiegeNight\description.txt"
-    "changenote"        "v2.5.43\n- MP: ensure SiegeNight spawns always use base health 1.0 (don’t pass boosted health into addZombiesInOutfit). Specials get health via server-side stat sync only. (Attempt to fix 'dead-but-moving' / unlootable bodies)."
+    "changenote"        "v2.5.44\n- Mini-hordes: MiniHorde_MaxZombies is now an absolute cap (player scaling can’t exceed it).\n- Mini-hordes: added global cooldown to prevent constant triggers on large MP dedicated servers."
 }
 
 

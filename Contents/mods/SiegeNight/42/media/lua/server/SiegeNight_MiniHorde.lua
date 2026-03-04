@@ -246,23 +246,32 @@ local function onEveryTenMinutes()
     local gt = getGameTime()
     if not gt then return end
     local now = gt:getWorldAgeHours()
-    local cooldownHours = SN.getSandbox("MiniHorde_CooldownMinutes") / 60
+    local cooldownHours = (SN.getSandbox("MiniHorde_CooldownMinutes") or 30) / 60
     local threshold = SN.getSandbox("MiniHorde_NoiseThreshold")
 
+    -- GLOBAL cooldown (MP): prevent large servers from triggering mini-hordes every tick
+    -- just because players are spread across many heat cells.
+    local globalLast = siegeData.miniHordeLastTrigger or 0
+    local inGlobalGrace = (now - globalLast) < cooldownHours
+
     for cellKey, data in pairs(heatGrid) do
-        -- Grace period: skip heat accumulation check right after a trigger
+        -- Per-cell grace period
         local inGrace = (now - data.lastTrigger) < cooldownHours
 
-        if not inGrace and data.heat >= threshold then
+        if (not inGlobalGrace) and (not inGrace) and data.heat >= threshold then
             triggerMiniHorde(cellKey, data, playerList)
             data.heat = 0
             data.lastTrigger = now
+            siegeData.miniHordeLastTrigger = now
+            globalLast = now
+            inGlobalGrace = true
         end
 
-        -- Decay heat (8 per tick  faster decay to prevent runaway accumulation)
+        -- Decay heat (8 per tick - faster decay to prevent runaway accumulation)
         data.heat = math.max(0, data.heat - 8)
 
-        if data.heat <= 0 and (now - data.lastTrigger) > 1 then
+        -- Keep cell entries around at least through the cooldown window
+        if data.heat <= 0 and (now - data.lastTrigger) > cooldownHours then
             heatGrid[cellKey] = nil
         end
     end
@@ -319,6 +328,10 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
     if SN.getSandbox("MiniHorde_PlayerScaling") then
         count = math.floor(count * math.max(1, #playerList * 0.75))
     end
+
+    -- IMPORTANT: MiniHorde_MaxZombies is treated as an absolute cap.
+    -- (Some servers set MaxZombies low intentionally; player scaling should never exceed it.)
+    count = math.min(count, maxZ)
 
     local dir = ZombRand(8)
     SN.log("MINI-HORDE triggered! " .. count .. " zombies at cell " .. cellKey
