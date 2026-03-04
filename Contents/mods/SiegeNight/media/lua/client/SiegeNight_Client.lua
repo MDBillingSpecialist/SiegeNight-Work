@@ -438,6 +438,24 @@ local function onServerCommand(module, command, args)
             local dirName = SN.getDirName(dir)
             player:Say("Something's attracted their attention from the " .. dirName .. "...")
         end
+
+    elseif command == "ServerMsg" then
+        -- Generic server response message (used by debug commands, etc.)
+        local msg = args["msg"]
+        if msg then
+            local player = getPlayer()
+            if player then player:Say("[SN] " .. msg) end
+            SN.log("Server: " .. msg)
+        end
+
+    elseif command == "CmdResponse" then
+        -- Legacy response format
+        local msg = args["message"]
+        if msg then
+            local player = getPlayer()
+            if player then player:Say("[SN] " .. msg) end
+            SN.log("Server response: " .. msg)
+        end
     end
 end
 

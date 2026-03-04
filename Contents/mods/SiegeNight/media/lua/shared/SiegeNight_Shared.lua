@@ -138,6 +138,11 @@ SN.DEFAULTS = {
     -- Scaling factors
     MiniHorde_PlayerScaling = true,
     MiniHorde_EstablishmentScaling = true,
+    -- Per-cluster / safehouse anchor system
+    MaxActiveZombies = 300,
+    SafehouseSearchRadius = 300,
+    SafehouseMergeDistance = 50,
+    SpawnAnchor = 1,  -- 1 = player, 2 = safehouse
 }
 
 -- ==========================================

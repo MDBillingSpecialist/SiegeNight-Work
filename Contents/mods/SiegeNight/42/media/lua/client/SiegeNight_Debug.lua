@@ -204,6 +204,14 @@ local function forceNextState()
     local player = getPlayer()
     if not player then return end
 
+    -- MP dedicated: route through server command
+    if isClient() then
+        sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugForceNextState", {})
+        player:Say("[SN] Requesting server state transition...")
+        return
+    end
+
+    -- SP: modify directly
     local siegeData = SN.getWorldData()
     if not siegeData then
         player:Say("[SN] World data not loaded yet")
@@ -245,6 +253,14 @@ local function forceSpawn10()
     local player = getPlayer()
     if not player then return end
 
+    -- MP dedicated: ask server to spawn (client-side addZombiesInOutfit creates ghost zombies on dedi)
+    if isClient() then
+        sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugSpawn10", {})
+        player:Say("[SN] Requesting server to spawn 10 zombies...")
+        return
+    end
+
+    -- SP: spawn locally (no network issues)
     local count = 0
     local failed = 0
     local px, py = player:getX(), player:getY()
@@ -286,6 +302,14 @@ local function forceSpawnSpecials()
     local player = getPlayer()
     if not player then return end
 
+    -- MP dedicated: ask server to spawn (client-side spawning creates ghost/broken zombies on dedi)
+    if isClient() then
+        sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugSpawnSpecials", {})
+        player:Say("[SN] Requesting server to spawn specials...")
+        return
+    end
+
+    -- SP: use lore-at-birth approach (set sandbox BEFORE spawn, no makeInactive)
     local px, py = player:getX(), player:getY()
     local types = {"sprinter", "breaker", "tank"}
     local spawned = {}
@@ -297,49 +321,58 @@ local function forceSpawnSpecials()
             local dist = math.sqrt((fx - px)^2 + (fy - py)^2)
             local square = dist >= 10 and getWorld():getCell():getGridSquare(fx, fy, 0) or nil
             if square and square:isFree(false) then
-                -- Keep base spawn health at 1.0 to avoid MP corpse/loot desync.
-                -- Apply extra health via server-side stat edits in real gameplay; debug spawns should match that.
-                -- Always spawn with base health = 1.0 in MP to avoid corpse/loot desync.
-                -- Even for tanks, we avoid passing boosted health via addZombiesInOutfit.
-                local healthMult = 1.0
+                -- Pick outfit based on type (same as server-side spawnOneZombie)
+                local outfit
+                if specialType == "breaker" then
+                    outfit = SN.BREAKER_OUTFITS[ZombRand(#SN.BREAKER_OUTFITS) + 1]
+                elseif specialType == "tank" then
+                    outfit = SN.TANK_OUTFITS[ZombRand(#SN.TANK_OUTFITS) + 1]
+                else
+                    outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
+                end
 
-                local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
-                local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, healthMult)
+                local healthMult = 1.5
+                if specialType == "breaker" then healthMult = 2.0
+                elseif specialType == "tank" then healthMult = SN.getSandbox("TankHealthMultiplier") or 5.0
+                end
 
-                if zombies and zombies:size() > 0 then
+                -- Lore-at-birth: set sandbox lore BEFORE spawn
+                local origSpeed = getSandboxOptions():getOptionByName("ZombieLore.Speed"):getValue()
+                local origStrength = getSandboxOptions():getOptionByName("ZombieLore.Strength"):getValue()
+                local origToughness = getSandboxOptions():getOptionByName("ZombieLore.Toughness"):getValue()
+                local origCognition = getSandboxOptions():getOptionByName("ZombieLore.Cognition"):getValue()
+
+                if specialType == "sprinter" then
+                    getSandboxOptions():set("ZombieLore.Speed", 1)
+                elseif specialType == "breaker" then
+                    getSandboxOptions():set("ZombieLore.Strength", 1)
+                    getSandboxOptions():set("ZombieLore.Cognition", 1)
+                elseif specialType == "tank" then
+                    getSandboxOptions():set("ZombieLore.Toughness", 1)
+                    getSandboxOptions():set("ZombieLore.Speed", 3)
+                    getSandboxOptions():set("ZombieLore.Strength", 1)
+                end
+
+                -- pcall-protect so sandbox lore is ALWAYS restored
+                local ok, zombies = pcall(addZombiesInOutfit, fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, healthMult)
+
+                -- ALWAYS restore sandbox lore
+                getSandboxOptions():set("ZombieLore.Speed", origSpeed)
+                getSandboxOptions():set("ZombieLore.Strength", origStrength)
+                getSandboxOptions():set("ZombieLore.Toughness", origToughness)
+                getSandboxOptions():set("ZombieLore.Cognition", origCognition)
+
+                if ok and zombies and zombies:size() > 0 then
                     local zombie = zombies:get(0)
-
-                    local origSpeed = getSandboxOptions():getOptionByName("ZombieLore.Speed"):getValue()
-                    local origStrength = getSandboxOptions():getOptionByName("ZombieLore.Strength"):getValue()
-                    local origToughness = getSandboxOptions():getOptionByName("ZombieLore.Toughness"):getValue()
-                    local origCognition = getSandboxOptions():getOptionByName("ZombieLore.Cognition"):getValue()
-
-                    if specialType == "sprinter" then
-                        getSandboxOptions():set("ZombieLore.Speed", 1)
-                    elseif specialType == "breaker" then
-                        getSandboxOptions():set("ZombieLore.Strength", 1)
-                        getSandboxOptions():set("ZombieLore.Cognition", 1)
-                    elseif specialType == "tank" then
-                        getSandboxOptions():set("ZombieLore.Toughness", 1)
-                        getSandboxOptions():set("ZombieLore.Speed", 3)
-                        getSandboxOptions():set("ZombieLore.Strength", 1)
-                    end
-
-                    zombie:makeInactive(true)
-                    zombie:makeInactive(false)
-
-                    getSandboxOptions():set("ZombieLore.Speed", origSpeed)
-                    getSandboxOptions():set("ZombieLore.Strength", origStrength)
-                    getSandboxOptions():set("ZombieLore.Toughness", origToughness)
-                    getSandboxOptions():set("ZombieLore.Cognition", origCognition)
-
                     zombie:getModData().SN_Type = specialType
+                    zombie:getModData().SN_SpecialType = specialType
                     zombie:getModData().SN_Siege = true
 
+                    -- Apply health directly (no deferred queue)
                     if specialType == "breaker" then
-                        zombie:dressInNamedOutfit("ConstructionWorker")
+                        zombie:setHealth(2.0)
                     elseif specialType == "tank" then
-                        zombie:dressInNamedOutfit("ArmyCamoGreen")
+                        zombie:setHealth(healthMult)
                     end
 
                     zombie:pathToCharacter(player)
@@ -363,8 +396,16 @@ local function forceMiniHorde()
     local player = getPlayer()
     if not player then return end
 
+    -- MP dedicated: ask server to spawn (client-side addZombiesInOutfit creates ghost zombies on dedi)
+    if isClient() then
+        sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugMiniHorde", {})
+        player:Say("[SN] Requesting server mini-horde...")
+        return
+    end
+
+    -- SP: spawn locally
     local px, py = player:getX(), player:getY()
-    local count = 25  -- Bigger test mini-horde
+    local count = 25
     local dir = ZombRand(8)
     local spawnDist = SN.getSandbox("SpawnDistance")
     local spawned = 0
@@ -405,6 +446,14 @@ local function setSiegeToday()
     local player = getPlayer()
     if not player then return end
 
+    -- MP dedicated: route through server command
+    if isClient() then
+        sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugSetToday", {})
+        player:Say("[SN] Requesting server to set siege today...")
+        return
+    end
+
+    -- SP: modify directly
     local siegeData = SN.getWorldData()
     if not siegeData then
         player:Say("[SN] World data not loaded yet")
@@ -417,7 +466,7 @@ local function setSiegeToday()
     player:Say("[SN] Next siege set to TODAY (day " .. today .. "). Wait for hour 6 or use Num2 to force.")
 end
 
--- Fast-forward state
+-- Fast-forward state (SP only — on MP the server handles it)
 local ffActive = false
 local ffTargetWorldHours = -1
 
@@ -425,6 +474,14 @@ local function fastForwardOneHour()
     local player = getPlayer()
     if not player then return end
 
+    -- MP dedicated: server controls time, client setMultiplier does nothing
+    if isClient() then
+        sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugFastForward", {})
+        player:Say("[SN] Requesting server fast-forward...")
+        return
+    end
+
+    -- SP: local fast-forward
     if ffActive then
         player:Say("[SN] Already fast-forwarding...")
         return
@@ -467,6 +524,14 @@ local function forceFullSiege()
     local player = getPlayer()
     if not player then return end
 
+    -- MP dedicated: route through server command
+    if isClient() then
+        sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugForceFullSiege", {})
+        player:Say("[SN] Requesting server to force full siege...")
+        return
+    end
+
+    -- SP: modify directly
     local siegeData = SN.getWorldData()
     if not siegeData then
         player:Say("[SN] World data not loaded yet")
