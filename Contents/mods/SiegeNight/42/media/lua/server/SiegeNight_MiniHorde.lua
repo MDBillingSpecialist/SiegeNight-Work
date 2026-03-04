@@ -246,8 +246,11 @@ local function onEveryTenMinutes()
     local gt = getGameTime()
     if not gt then return end
     local now = gt:getWorldAgeHours()
-    local cooldownHours = (SN.getSandbox("MiniHorde_CooldownMinutes") or 30) / 60
-    local threshold = SN.getSandbox("MiniHorde_NoiseThreshold")
+
+    -- SandboxVars can arrive as strings on some dedi setups; normalize to numbers.
+    local cooldownMinutes = tonumber(SN.getSandbox("MiniHorde_CooldownMinutes")) or 30
+    local cooldownHours = cooldownMinutes / 60
+    local threshold = tonumber(SN.getSandbox("MiniHorde_NoiseThreshold")) or 80
 
     -- GLOBAL cooldown (MP): prevent large servers from triggering mini-hordes every tick
     -- just because players are spread across many heat cells.
@@ -316,8 +319,9 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
 
     -- Calculate horde size with player scaling
     local heatRatio = math.min(1.0, heatData.heat / 100)
-    local minZ = SN.getSandbox("MiniHorde_MinZombies")
-    local maxZ = SN.getSandbox("MiniHorde_MaxZombies")
+    local minZ = tonumber(SN.getSandbox("MiniHorde_MinZombies")) or 10
+    local maxZ = tonumber(SN.getSandbox("MiniHorde_MaxZombies")) or 60
+    if maxZ < minZ then maxZ = minZ end
 
     local count = minZ
     if SN.getSandbox("MiniHorde_ActivityScaling") then
@@ -335,7 +339,10 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
 
     local dir = ZombRand(8)
     SN.log("MINI-HORDE triggered! " .. count .. " zombies at cell " .. cellKey
-        .. " (heat: " .. heatData.heat .. ", players: " .. #playerList .. ")")
+        .. " (heat: " .. heatData.heat .. ", players: " .. #playerList
+        .. ", cap: " .. tostring(maxZ)
+        .. ", cooldownMin: " .. tostring(tonumber(SN.getSandbox("MiniHorde_CooldownMinutes")) or 30)
+        .. ")")
 
     -- Notify client(s)
     if isServer() then
