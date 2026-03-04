@@ -410,8 +410,12 @@ local function onMiniHordeTick()
                         if square and square:isFree(false) and square:isOutside() and not isInsidePlayerArea(square) then
                             local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
                             -- MP: keep base spawn health at 1.0 (avoid client/server health desync).
-                            local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
-                            if zombies and zombies:size() > 0 then
+                            -- pcall-protect spawn so a Java error doesn't crash the tick loop.
+                            local ok, zombies = pcall(addZombiesInOutfit, fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
+                            if not ok then
+                                SN.log("WARNING: mini-horde addZombiesInOutfit failed: " .. tostring(zombies))
+                            end
+                            if ok and zombies and zombies:size() > 0 then
                                 local zombie = zombies:get(0)
                                 -- IMPORTANT: do NOT dress zombies server-side.
                                 -- addZombiesInOutfit already applies clothing and server-side dressInNamedOutfit
@@ -420,8 +424,11 @@ local function onMiniHordeTick()
                                 local p = job.player
                                 local okP, pX = pcall(function() return p and p:getX() end)
                                 if okP and type(pX) == "number" then
-                                    -- pathToCharacter can throw Java InvocationTargetException on some dedicated servers.
-                                    -- Target/aggro is enough for mini-hordes, so skip pathing.
+                                    -- pathToSound gives the zombie an initial movement vector toward the player.
+                                    -- Without this, zombies spawned at range just stand still.
+                                    -- NOTE: pathToSound is safe (coordinate-based), unlike pathToCharacter
+                                    -- which can throw InvocationTargetException on some dedicated servers.
+                                    pcall(function() zombie:pathToSound(pX, p:getY(), 0) end)
                                     pcall(function() zombie:setTarget(p) end)
                                     pcall(function() zombie:setAttackedBy(p) end)
                                     pcall(function() zombie:spottedNew(p, true) end)
@@ -433,7 +440,8 @@ local function onMiniHordeTick()
                                 zombie:getModData().SN_MiniHorde = true
                             end
                             -- NOTE: do NOT broadcast a huge world sound here.
-                            -- Mini-horde zombies already get explicit target/aggro; a big sound radius pulls in the entire cell.
+                            -- Mini-horde zombies target the triggering player only; a big sound radius
+                            -- would pull in the entire cell which defeats the purpose of mini-hordes.
 
                             job.remaining = job.remaining - 1
                             break
