@@ -466,7 +466,7 @@ local function setSiegeToday()
     player:Say("[SN] Next siege set to TODAY (day " .. today .. "). Wait for hour 6 or use Num2 to force.")
 end
 
--- Fast-forward state (SP only — on MP the server handles it)
+-- Fast-forward state (SP only - on MP the server handles it)
 local ffActive = false
 local ffTargetWorldHours = -1
 

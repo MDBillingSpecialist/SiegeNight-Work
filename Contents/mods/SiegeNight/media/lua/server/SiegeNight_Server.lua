@@ -685,7 +685,7 @@ local function spawnOneZombie(spawnPlayer, aggroPlayer, primaryDir, specialType,
     -- pcall-protect the spawn so sandbox lore is ALWAYS restored even if
     -- addZombiesInOutfit throws an error. Without this, a crash between set
     -- and restore would leave sandbox lore stuck (making ALL future zombies
-    -- sprinters/tanks — the "all zombies dancing" bug).
+    -- sprinters/tanks - the "all zombies dancing" bug).
     local ok, zombies = pcall(addZombiesInOutfit, spawnX, spawnY, 0, 1, outfit, 50, false, false, false, false, false, false, healthMult)
     -- ALWAYS restore sandbox lore, even on error
     if isSpecial then
