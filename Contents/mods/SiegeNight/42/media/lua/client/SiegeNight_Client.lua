@@ -347,24 +347,6 @@ local function onServerCommand(module, command, args)
             end
         end
 
-    
-    elseif command == "DressZombie" then
-        local onlineID = args["id"]
-        local outfit = args["outfit"]
-        if onlineID and outfit then
-            local zombies = getCell():getZombieList()
-            if zombies then
-                for i = 0, zombies:size() - 1 do
-                    local z = zombies:get(i)
-                    if z and z:getOnlineID() == onlineID then
-                        if z.dressInNamedOutfit then
-                            pcall(function() z:dressInNamedOutfit(outfit) end)
-                        end
-                        break
-                    end
-                end
-            end
-        end
 
     elseif command == "SyncAllStats" then
         -- Server pushed full stats -- write directly into ModData so panel reads them

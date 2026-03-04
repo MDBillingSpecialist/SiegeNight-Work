@@ -186,7 +186,6 @@ end
 -- LOCAL STATE (global scope)
 -- ==========================================
 
-local dawnTicksRemaining = 0
 local DAWN_DURATION_TICKS = 300
 
 -- ==========================================
@@ -731,6 +730,8 @@ local function spawnOneZombie(spawnPlayer, aggroPlayer, primaryDir, specialType,
             pcall(function() zombie:setTarget(aggroPlayer) end)
             pcall(function() zombie:setAttackedBy(aggroPlayer) end)
             pcall(function() zombie:spottedNew(aggroPlayer, true) end)
+            pcall(function() zombie:addAggro(aggroPlayer, 1) end)
+            -- Siege attractor: LOUD sound pulls ALL nearby zombies (siege = pull everybody)
             pcall(function() getWorldSoundManager():addSound(aggroPlayer, math.floor(aggroPlayer:getX()), math.floor(aggroPlayer:getY()), 0, 200, 200) end)
         end
         table.insert(zombieList, { zombie = zombie, player = aggroPlayer, anchorX = anchorX, anchorY = anchorY })
@@ -861,6 +862,7 @@ local function tickClusterActive(cs, siegeData)
                             pcall(function() zombie:setTarget(player) end)
                             pcall(function() zombie:setAttackedBy(player) end)
                             pcall(function() zombie:spottedNew(player, true) end)
+                            pcall(function() zombie:addAggro(player, 1) end)
                         end
                         table.insert(alive, entry)
                         repathed = repathed + 1
@@ -1183,7 +1185,6 @@ local function handleSiegeStop(player)
         end
     end
     siegeData.siegeState = SN.STATE_DAWN
-    dawnTicksRemaining = DAWN_DURATION_TICKS
     siegeData.dawnToIdleProcessed = false
     siegeData.endSeq = (siegeData.endSeq or 0) + 1
     siegeData.endSeqProcessed = nil
@@ -1309,6 +1310,209 @@ local function onClientCommand(module, command, player, args)
         local pcs = findPlayerCluster(player)
         if pcs then syncArgs.clusterId = pcs.id; syncArgs.aliveCount = countAliveSiegeZombies(pcs) end
         sendServerCommand(player, SN.CLIENT_MODULE, "SyncAllStats", syncArgs)
+
+    -- ===========================================
+    -- DEBUG COMMAND HANDLERS (MP dedicated server)
+    -- ===========================================
+    elseif command == "CmdDebugForceNextState" then
+        if not isPlayerAdmin(player) then return end
+        local siegeData2 = SN.getWorldData()
+        if not siegeData2 then sendResponseToPlayer(player, "World data not loaded yet."); return end
+        local oldState = siegeData2.siegeState
+        if oldState == SN.STATE_IDLE then
+            siegeData2.siegeState = SN.STATE_WARNING
+            siegeData2.siegeCount = math.max(0, SN.getSiegeCount(math.floor(SN.getActualDay())))
+        elseif oldState == SN.STATE_WARNING then
+            local playerList = getPlayerList()
+            enterGlobalActiveState(siegeData2, "debug force by " .. (player:getUsername() or "admin"), playerList, "manual")
+        elseif oldState == SN.STATE_ACTIVE then
+            handleSiegeStop(player)
+        elseif oldState == SN.STATE_DAWN then
+            siegeData2.siegeState = SN.STATE_IDLE
+            siegeData2.nextSiegeDay = math.floor(SN.getActualDay()) + SN.getNextFrequency()
+        end
+        if isServer() then ModData.transmit("SiegeNight") end
+        local newState = siegeData2.siegeState
+        SN.log("DEBUG FORCE STATE: " .. oldState .. " -> " .. newState .. " by " .. (player:getUsername() or "admin"))
+        sendResponseToPlayer(player, oldState .. " -> " .. newState)
+        if oldState ~= newState then
+            broadcastToAll("StateChange", { state = newState, siegeCount = siegeData2.siegeCount })
+        end
+
+    elseif command == "CmdDebugSetToday" then
+        if not isPlayerAdmin(player) then return end
+        local siegeData2 = SN.getWorldData()
+        if not siegeData2 then sendResponseToPlayer(player, "World data not loaded yet."); return end
+        local today = math.floor(SN.getActualDay())
+        siegeData2.nextSiegeDay = today
+        if isServer() then ModData.transmit("SiegeNight") end
+        SN.log("DEBUG: Set nextSiegeDay to " .. today .. " by " .. (player:getUsername() or "admin"))
+        sendResponseToPlayer(player, "Next siege set to TODAY (day " .. today .. ").")
+
+    elseif command == "CmdDebugForceFullSiege" then
+        if not isPlayerAdmin(player) then return end
+        local siegeData2 = SN.getWorldData()
+        if not siegeData2 then sendResponseToPlayer(player, "World data not loaded yet."); return end
+        if siegeData2.siegeState == SN.STATE_ACTIVE then sendResponseToPlayer(player, "Siege already active!"); return end
+        local currentDay = math.floor(SN.getActualDay())
+        siegeData2.siegeCount = math.max(0, SN.getSiegeCount(currentDay))
+        siegeData2.debugBreakOverride = 1800  -- 1 min breaks for debug
+        local playerList = getPlayerList()
+        enterGlobalActiveState(siegeData2, "debug full siege by " .. (player:getUsername() or "admin"), playerList, "manual")
+        -- Override target to max
+        siegeData2.targetZombies = SN.getSandbox("MaxZombies")
+        for _, cs in pairs(clusterSieges) do
+            cs.targetZombies = SN.calculateSiegeZombies(siegeData2.siegeCount, #cs.members)
+        end
+        if isServer() then ModData.transmit("SiegeNight") end
+        SN.log("DEBUG: Forced FULL SIEGE by " .. (player:getUsername() or "admin"))
+        sendResponseToPlayer(player, "MAX SIEGE! " .. (siegeData2.targetZombies or "?") .. " zombies incoming!")
+
+    elseif command == "CmdDebugSpawn10" then
+        if not isPlayerAdmin(player) then return end
+        local px, py = player:getX(), player:getY()
+        local count = 0
+        local failed = 0
+        for i = 1, 10 do
+            local spawned = false
+            for attempt = 0, 50 do
+                local fx = math.floor(px + ZombRand(31) - 15)
+                local fy = math.floor(py + ZombRand(31) - 15)
+                local dist = math.sqrt((fx - px)^2 + (fy - py)^2)
+                if dist >= 10 then
+                    local square = getWorld():getCell():getGridSquare(fx, fy, 0)
+                    if square and square:isFree(false) then
+                        local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
+                        local ok, zombies = pcall(addZombiesInOutfit, fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
+                        if ok and zombies and zombies:size() > 0 then
+                            local z = zombies:get(0)
+                            z:getModData().SN_Siege = true
+                            pcall(function() z:pathToSound(px, py, 0) end)
+                            pcall(function() z:setTarget(player) end)
+                            pcall(function() z:setAttackedBy(player) end)
+                            pcall(function() z:spottedNew(player, true) end)
+                            pcall(function() z:addAggro(player, 1) end)
+                        end
+                        count = count + 1
+                        spawned = true
+                        break
+                    end
+                end
+            end
+            if not spawned then failed = failed + 1 end
+        end
+        SN.log("DEBUG: Spawn10 by " .. (player:getUsername() or "admin") .. ": " .. count .. " spawned, " .. failed .. " failed")
+        sendResponseToPlayer(player, "Spawned " .. count .. " zombies" .. (failed > 0 and (" (" .. failed .. " failed)") or ""))
+
+    elseif command == "CmdDebugSpawnSpecials" then
+        if not isPlayerAdmin(player) then return end
+        local px, py = player:getX(), player:getY()
+        local types = {"sprinter", "breaker", "tank"}
+        local results = {}
+        for _, specialType in ipairs(types) do
+            for attempt = 0, 50 do
+                local fx = math.floor(px + ZombRand(41) - 20)
+                local fy = math.floor(py + ZombRand(41) - 20)
+                local dist = math.sqrt((fx - px)^2 + (fy - py)^2)
+                local square = dist >= 10 and getWorld():getCell():getGridSquare(fx, fy, 0) or nil
+                if square and square:isFree(false) then
+                    local outfit
+                    if specialType == "breaker" then outfit = SN.BREAKER_OUTFITS[ZombRand(#SN.BREAKER_OUTFITS) + 1]
+                    elseif specialType == "tank" then outfit = SN.TANK_OUTFITS[ZombRand(#SN.TANK_OUTFITS) + 1]
+                    else outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1] end
+                    local healthMult = 1.5
+                    if specialType == "breaker" then healthMult = 2.0
+                    elseif specialType == "tank" then healthMult = SN.getSandbox("TankHealthMultiplier") or 5.0 end
+                    -- Lore-at-birth: set sandbox BEFORE spawn
+                    local origSpeed = getSandboxOptions():getOptionByName("ZombieLore.Speed"):getValue()
+                    local origStrength = getSandboxOptions():getOptionByName("ZombieLore.Strength"):getValue()
+                    local origToughness = getSandboxOptions():getOptionByName("ZombieLore.Toughness"):getValue()
+                    local origCognition = getSandboxOptions():getOptionByName("ZombieLore.Cognition"):getValue()
+                    if specialType == "sprinter" then getSandboxOptions():set("ZombieLore.Speed", 1)
+                    elseif specialType == "breaker" then getSandboxOptions():set("ZombieLore.Strength", 1); getSandboxOptions():set("ZombieLore.Cognition", 1)
+                    elseif specialType == "tank" then getSandboxOptions():set("ZombieLore.Toughness", 1); getSandboxOptions():set("ZombieLore.Speed", 3); getSandboxOptions():set("ZombieLore.Strength", 1) end
+                    local ok, zombies = pcall(addZombiesInOutfit, fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, healthMult)
+                    -- ALWAYS restore sandbox lore
+                    getSandboxOptions():set("ZombieLore.Speed", origSpeed)
+                    getSandboxOptions():set("ZombieLore.Strength", origStrength)
+                    getSandboxOptions():set("ZombieLore.Toughness", origToughness)
+                    getSandboxOptions():set("ZombieLore.Cognition", origCognition)
+                    if ok and zombies and zombies:size() > 0 then
+                        local zombie = zombies:get(0)
+                        zombie:getModData().SN_Type = specialType
+                        zombie:getModData().SN_SpecialType = specialType
+                        zombie:getModData().SN_Siege = true
+                        if specialType == "breaker" then zombie:setHealth(2.0)
+                        elseif specialType == "tank" then zombie:setHealth(healthMult) end
+                        pcall(function() zombie:pathToSound(px, py, 0) end)
+                        pcall(function() zombie:setTarget(player) end)
+                        pcall(function() zombie:setAttackedBy(player) end)
+                        pcall(function() zombie:spottedNew(player, true) end)
+                        pcall(function() zombie:addAggro(player, 1) end)
+                        table.insert(results, specialType)
+                        SN.log("DEBUG: Spawned " .. specialType .. " at " .. fx .. "," .. fy .. " by " .. (player:getUsername() or "admin"))
+                    end
+                    break
+                end
+            end
+        end
+        sendResponseToPlayer(player, "Spawned: " .. (#results > 0 and table.concat(results, ", ") or "none (all failed)"))
+
+    elseif command == "CmdDebugMiniHorde" then
+        if not isPlayerAdmin(player) then return end
+        local px, py = player:getX(), player:getY()
+        local count = 25
+        local dir = ZombRand(8)
+        local spawnDist = SN.getSandbox("SpawnDistance")
+        local spawned = 0
+        for i = 1, count do
+            local baseX = px + SN.DIR_X[dir + 1] * spawnDist
+            local baseY = py + SN.DIR_Y[dir + 1] * spawnDist
+            local spread = ZombRand(41) - 20
+            local perpX = -SN.DIR_Y[dir + 1]
+            local perpY = SN.DIR_X[dir + 1]
+            local fx = math.floor(baseX + perpX * spread)
+            local fy = math.floor(baseY + perpY * spread)
+            local square = getWorld():getCell():getGridSquare(fx, fy, 0)
+            if square and square:isFree(false) then
+                local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
+                local ok, zombies = pcall(addZombiesInOutfit, fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
+                if ok and zombies and zombies:size() > 0 then
+                    local z = zombies:get(0)
+                    z:getModData().SN_MiniHorde = true
+                    -- Mini-horde: targeted hunting only, NO big attractor sound
+                    pcall(function() z:pathToSound(px, py, 0) end)
+                    pcall(function() z:setTarget(player) end)
+                    pcall(function() z:setAttackedBy(player) end)
+                    pcall(function() z:spottedNew(player, true) end)
+                    pcall(function() z:addAggro(player, 1) end)
+                end
+                spawned = spawned + 1
+            end
+        end
+        -- Mini-horde does NOT broadcast a huge world sound (unlike siege)
+        SN.log("DEBUG: Mini-horde by " .. (player:getUsername() or "admin") .. ": " .. spawned .. " from " .. SN.DIR_NAMES[dir + 1])
+        sendResponseToPlayer(player, "Mini-horde! " .. spawned .. " from " .. SN.DIR_NAMES[dir + 1])
+        sendServerCommand(player, SN.CLIENT_MODULE, "MiniHorde", { count = spawned, direction = dir })
+
+    elseif command == "CmdDebugFastForward" then
+        if not isPlayerAdmin(player) then return end
+        -- Server-side time skip: advance 1 hour
+        local gt = getGameTime()
+        if gt then
+            local currentH = SN.getCurrentHour()
+            pcall(function() gt:setMultiplier(100) end)
+            -- Schedule restore via a flag; the tick handler will restore after 1 hour passes
+            local siegeData2 = SN.getWorldData()
+            if siegeData2 then
+                siegeData2.debugFFTargetHours = (gt:getWorldAgeHours() or 0) + 1.0
+                siegeData2.debugFFActive = true
+            end
+            SN.log("DEBUG: Fast-forward requested by " .. (player:getUsername() or "admin") .. " from hour " .. currentH)
+            sendResponseToPlayer(player, "Fast-forwarding 1 hour from H" .. currentH .. "...")
+        else
+            sendResponseToPlayer(player, "Cannot fast-forward: getGameTime() unavailable.")
+        end
     end
 end
 
@@ -1326,6 +1530,17 @@ local function onServerTick()
     if not siegeData then return end
 
     checkVoteTimeout()
+
+    -- Debug fast-forward: restore normal speed after 1 hour passes
+    if siegeData.debugFFActive then
+        local gt = getGameTime()
+        if gt and gt:getWorldAgeHours() >= (siegeData.debugFFTargetHours or 0) then
+            pcall(function() gt:setMultiplier(1) end)
+            siegeData.debugFFActive = nil
+            siegeData.debugFFTargetHours = nil
+            SN.log("DEBUG: Fast-forward complete at hour " .. SN.getCurrentHour())
+        end
+    end
 
     -- Tick all active clusters
     if siegeData.siegeState == SN.STATE_ACTIVE then
