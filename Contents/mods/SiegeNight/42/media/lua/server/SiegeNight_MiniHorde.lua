@@ -246,11 +246,8 @@ local function onEveryTenMinutes()
     local gt = getGameTime()
     if not gt then return end
     local now = gt:getWorldAgeHours()
-
-    -- SandboxVars can arrive as strings on some dedi setups; normalize to numbers.
-    local cooldownMinutes = tonumber(SN.getSandbox("MiniHorde_CooldownMinutes")) or 30
-    local cooldownHours = cooldownMinutes / 60
-    local threshold = tonumber(SN.getSandbox("MiniHorde_NoiseThreshold")) or 80
+    local cooldownHours = (SN.getSandbox("MiniHorde_CooldownMinutes") or 30) / 60
+    local threshold = SN.getSandbox("MiniHorde_NoiseThreshold")
 
     -- GLOBAL cooldown (MP): prevent large servers from triggering mini-hordes every tick
     -- just because players are spread across many heat cells.
@@ -270,10 +267,8 @@ local function onEveryTenMinutes()
             inGlobalGrace = true
         end
 
-        -- Decay heat: scales with player count so large servers don't have permanently hot cells.
-        -- Base 8 + 1 per player. 1p=9, 5p=13, 11p=19, 20p=28.
-        local decayAmount = 8 + #playerList
-        data.heat = math.max(0, data.heat - decayAmount)
+        -- Decay heat (8 per tick - faster decay to prevent runaway accumulation)
+        data.heat = math.max(0, data.heat - 8)
 
         -- Keep cell entries around at least through the cooldown window
         if data.heat <= 0 and (now - data.lastTrigger) > cooldownHours then
@@ -321,33 +316,26 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
 
     -- Calculate horde size with player scaling
     local heatRatio = math.min(1.0, heatData.heat / 100)
-    local minZ = tonumber(SN.getSandbox("MiniHorde_MinZombies")) or 10
-    local maxZ = tonumber(SN.getSandbox("MiniHorde_MaxZombies")) or 60
-    if maxZ < minZ then maxZ = minZ end
+    local minZ = SN.getSandbox("MiniHorde_MinZombies")
+    local maxZ = SN.getSandbox("MiniHorde_MaxZombies")
 
     local count = minZ
     if SN.getSandbox("MiniHorde_ActivityScaling") then
         count = math.floor(minZ + (maxZ - minZ) * heatRatio)
     end
 
-    -- Player count scaling: logarithmic so large servers don't get insane multipliers.
-    -- Old formula was linear (#players * 0.75) which gave 8.25x with 11 players!
-    -- New: 1p=1.0x, 2p=1.2x, 5p=1.5x, 11p=1.7x, 20p=1.9x, capped at 3x.
-    if SN.getSandbox("MiniHorde_PlayerScaling") and #playerList > 1 then
-        local playerMult = math.min(3.0, 1.0 + math.log(#playerList) * 0.3)
-        count = math.floor(count * playerMult)
+    -- Player count scaling: more players = bigger mini-horde
+    if SN.getSandbox("MiniHorde_PlayerScaling") then
+        count = math.floor(count * math.max(1, #playerList * 0.75))
     end
 
     -- IMPORTANT: MiniHorde_MaxZombies is treated as an absolute cap.
-    -- Player scaling can push count above maxZ, so this cap is essential.
+    -- (Some servers set MaxZombies low intentionally; player scaling should never exceed it.)
     count = math.min(count, maxZ)
 
     local dir = ZombRand(8)
     SN.log("MINI-HORDE triggered! " .. count .. " zombies at cell " .. cellKey
-        .. " (heat: " .. heatData.heat .. ", players: " .. #playerList
-        .. ", cap: " .. tostring(maxZ)
-        .. ", cooldownMin: " .. tostring(tonumber(SN.getSandbox("MiniHorde_CooldownMinutes")) or 30)
-        .. ")")
+        .. " (heat: " .. heatData.heat .. ", players: " .. #playerList .. ")")
 
     -- Notify client(s)
     if isServer() then
