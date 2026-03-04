@@ -24,7 +24,8 @@ $text = $text.Replace([char]0x2018, "'")   # ‘
 $text = $text.Replace([char]0x2019, "'")   # ’
 $text = $text.Replace([char]0x201C, '"')    # “
 $text = $text.Replace([char]0x201D, '"')    # ”
-$text = $text.Replace([char]0x2026, "...") # …
+# Use string replace for ellipsis (…)
+$text = $text.Replace("…", "...")
 
 # Final guard: drop any remaining non-ASCII characters by replacing with '?'
 # (We prefer explicit replacements above; this is last-resort.)
