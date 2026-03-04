@@ -270,8 +270,10 @@ local function onEveryTenMinutes()
             inGlobalGrace = true
         end
 
-        -- Decay heat (8 per tick - faster decay to prevent runaway accumulation)
-        data.heat = math.max(0, data.heat - 8)
+        -- Decay heat: scales with player count so large servers don't have permanently hot cells.
+        -- Base 8 + 1 per player. 1p=9, 5p=13, 11p=19, 20p=28.
+        local decayAmount = 8 + #playerList
+        data.heat = math.max(0, data.heat - decayAmount)
 
         -- Keep cell entries around at least through the cooldown window
         if data.heat <= 0 and (now - data.lastTrigger) > cooldownHours then
@@ -328,13 +330,16 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
         count = math.floor(minZ + (maxZ - minZ) * heatRatio)
     end
 
-    -- Player count scaling: more players = bigger mini-horde
-    if SN.getSandbox("MiniHorde_PlayerScaling") then
-        count = math.floor(count * math.max(1, #playerList * 0.75))
+    -- Player count scaling: logarithmic so large servers don't get insane multipliers.
+    -- Old formula was linear (#players * 0.75) which gave 8.25x with 11 players!
+    -- New: 1p=1.0x, 2p=1.2x, 5p=1.5x, 11p=1.7x, 20p=1.9x, capped at 3x.
+    if SN.getSandbox("MiniHorde_PlayerScaling") and #playerList > 1 then
+        local playerMult = math.min(3.0, 1.0 + math.log(#playerList) * 0.3)
+        count = math.floor(count * playerMult)
     end
 
     -- IMPORTANT: MiniHorde_MaxZombies is treated as an absolute cap.
-    -- (Some servers set MaxZombies low intentionally; player scaling should never exceed it.)
+    -- Player scaling can push count above maxZ, so this cap is essential.
     count = math.min(count, maxZ)
 
     local dir = ZombRand(8)
