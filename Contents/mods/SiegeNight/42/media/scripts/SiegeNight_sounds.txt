@@ -1,0 +1,63 @@
+module SiegeNight {
+
+    sound SN_SiegeHorn {
+        category = Ambient,
+        loop = false,
+        is3D = false,
+        clip {
+            file = media/sound/SiegeNight/siege_horn.ogg,
+            volume = 0.8,
+        }
+    }
+
+    sound SN_Warning {
+        category = Ambient,
+        loop = true,
+        is3D = false,
+        clip {
+            file = media/sound/SiegeNight/siege_warning.ogg,
+            volume = 0.4,
+        }
+    }
+
+    sound SN_WaveIncoming {
+        category = Ambient,
+        loop = false,
+        is3D = false,
+        clip {
+            file = media/sound/SiegeNight/wave_incoming.ogg,
+            volume = 0.6,
+        }
+    }
+
+    sound SN_WaveBreak {
+        category = Ambient,
+        loop = false,
+        is3D = false,
+        clip {
+            file = media/sound/SiegeNight/wave_break.ogg,
+            volume = 0.5,
+        }
+    }
+
+    sound SN_DawnClear {
+        category = Ambient,
+        loop = false,
+        is3D = false,
+        clip {
+            file = media/sound/SiegeNight/dawn_clear.ogg,
+            volume = 0.6,
+        }
+    }
+
+    sound SN_MiniHordeAlert {
+        category = Ambient,
+        loop = false,
+        is3D = false,
+        clip {
+            file = media/sound/SiegeNight/minihorde_alert.ogg,
+            volume = 0.7,
+        }
+    }
+
+}

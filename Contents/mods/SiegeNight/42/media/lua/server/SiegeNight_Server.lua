@@ -18,6 +18,7 @@
 ]]
 
 local SN = require("SiegeNight_Shared")
+local SN_Weather = require("SiegeNight_Weather")
 
 -- Safety: this file must never run on MP clients.
 -- (Singleplayer has isClient()==false, so SP still works.)
@@ -230,7 +231,8 @@ local function specialCorpseSanityTick(zombieList)
             table.remove(zombieList, i)
         else
             local md = z:getModData()
-            if md and md.SN_SpecialType then
+            local isSNZombie = md and (md.SN_SpecialType or md.SN_Siege or md.SN_MiniHorde)
+            if isSNZombie then
                 local okDead, isDead = pcall(function() return z:isDead() end)
                 if okDead and isDead then
                     md.SN_DownedAt = nil
@@ -238,6 +240,7 @@ local function specialCorpseSanityTick(zombieList)
                     if isZombieOnGround(z) then
                         if not md.SN_DownedAt then md.SN_DownedAt = now end
                         if (now - md.SN_DownedAt) > 2 then
+                            SN.log("CorpseSanity: forceKill (siege) x=" .. tostring(z:getX()) .. " y=" .. tostring(z:getY()) .. " siege=" .. tostring(md.SN_Siege) .. " mini=" .. tostring(md.SN_MiniHorde) .. " special=" .. tostring(md.SN_SpecialType))
                             forceKillZombie(z)
                             md.SN_DownedAt = now
                         end
@@ -770,6 +773,7 @@ local function advanceClusterWavePhase(cs, siegeData)
                 SN.log("Cluster " .. cs.id .. " Wave " .. cs.currentWaveIndex .. "/" .. #cs.waveStructure .. " WAVE: " .. cs.phaseTargetCount)
                 notifyClusterPlayers(cs, "WaveStart", { waveIndex = cs.currentWaveIndex, totalWaves = #cs.waveStructure, clusterId = cs.id })
                 SN.fireCallback("onWaveStart", cs.currentWaveIndex, #cs.waveStructure)
+                SN_Weather.intensifyForWave(cs.currentWaveIndex, #cs.waveStructure)
             end
         end
     elseif cs.currentPhase == SN.PHASE_BREAK then
@@ -781,6 +785,7 @@ local function advanceClusterWavePhase(cs, siegeData)
             SN.log("Cluster " .. cs.id .. " Wave " .. cs.currentWaveIndex .. "/" .. #cs.waveStructure .. " WAVE: " .. cs.phaseTargetCount)
             notifyClusterPlayers(cs, "WaveStart", { waveIndex = cs.currentWaveIndex, totalWaves = #cs.waveStructure, clusterId = cs.id })
             SN.fireCallback("onWaveStart", cs.currentWaveIndex, #cs.waveStructure)
+            SN_Weather.intensifyForWave(cs.currentWaveIndex, #cs.waveStructure)
         else
             SN.log("Cluster " .. cs.id .. " All waves completed")
         end
@@ -882,6 +887,7 @@ local function tickClusterActive(cs, siegeData)
             cs.ending = true
             cs.siegeState = "DAWN"
             cs.dawnTicksRemaining = DAWN_DURATION_TICKS
+            SN_Weather.clearWeather()
             SN.log("Cluster " .. cs.id .. " CLEARED! " .. cs.killsThisSiege .. "+" .. cs.bonusKills .. "/" .. cs.targetZombies)
             notifyClusterPlayers(cs, "StateChange", { state = SN.STATE_DAWN, killsThisSiege = cs.killsThisSiege, bonusKills = cs.bonusKills, specialKills = cs.specialKillsThisSiege, clusterId = cs.id })
             for _, entry in ipairs(cs.siegeZombies) do
@@ -1085,6 +1091,7 @@ local function enterGlobalActiveState(siegeData, reason, playerList, trigger)
             totalWaves = math.max(3, math.min(7, math.floor(siegeData.targetZombies / 60) + 2)),
         })
     end
+    SN_Weather.startSiegeWeather()
     SN.fireCallback("onSiegeStart", siegeData.siegeCount, dir, siegeData.targetZombies)
 end
 
@@ -1123,6 +1130,7 @@ local function finalizeGlobalSiegeEnd(siegeData)
     siegeData.ending = false
     siegeData.stopLockUntil = nil
     clusterSieges = {}
+    SN_Weather.disableAllOverrides()
     SN.log("IDLE. Next siege day: " .. siegeData.nextSiegeDay .. " | History #" .. idx)
     if isServer() then
         ModData.transmit("SiegeNight")
@@ -1188,6 +1196,7 @@ local function handleSiegeStop(player)
     siegeData.endSeq = (siegeData.endSeq or 0) + 1
     siegeData.endSeqProcessed = nil
     siegeData.ending = true
+    SN_Weather.clearWeather()
     local w = getWorld()
     local nowAge = 0
     if w and w.getWorldAgeDays then
@@ -1517,6 +1526,7 @@ local function onServerTick()
     local currentTickState = siegeData.siegeState
 
     checkVoteTimeout()
+    SN_Weather.tick()
 
     -- Debug fast-forward: restore normal speed after 1 hour passes
     if siegeData.debugFFActive then
@@ -1542,6 +1552,12 @@ local function onServerTick()
             end
         end
         updateGlobalAggregates(siegeData)
+
+        -- Midnight weather intensification (when specials start spawning)
+        local hoursSinceDusk = SN.getHoursSinceDusk()
+        if hoursSinceDusk >= (SN.MIDNIGHT_RELATIVE_HOUR or 4) then
+            SN_Weather.midnightIntensify()
+        end
 
         -- Dawn fallback for scheduled sieges
         local currentHour = SN.getCurrentHour()
@@ -1572,6 +1588,7 @@ local function onServerTick()
         end
 
         if dawnFallback then
+            SN_Weather.clearWeather()
             for _, cs in pairs(clusterSieges) do
                 if cs.siegeState == SN.STATE_ACTIVE then
                     cs.ending = true
@@ -1638,6 +1655,7 @@ local function onServerTick()
                 siegeData.siegeState = SN.STATE_WARNING
                 siegeData.siegeCount = math.max(0, SN.getSiegeCount(currentDay))
                 SN.log("WARNING on day " .. currentDay)
+                SN_Weather.startWarningWeather()
                 if isServer() then sendServerCommand(SN.CLIENT_MODULE, "StateChange", { state = SN.STATE_WARNING, siegeCount = siegeData.siegeCount, day = currentDay }) end
             end
             if isSiegeToday and SN.isSiegeTime(currentHour) then

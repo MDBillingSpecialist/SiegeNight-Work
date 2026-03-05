@@ -75,4 +75,10 @@ Sandbox_EN = {
     SN_MiniHorde_PlayerScaling_tooltip = "Scale mini-horde size with number of online players. More players = bigger hordes.",
     SN_MiniHorde_EstablishmentScaling = "Establishment Scaling",
     SN_MiniHorde_EstablishmentScaling_tooltip = "Scale siege AND mini-horde size based on how established players are (generators, loot). More stuff = bigger hordes.",
+
+    -- Weather settings
+    SN_SiegeWeatherEnabled = "Siege Weather Effects",
+    SN_SiegeWeatherEnabled_tooltip = "Enable dynamic weather during siege nights. Fog builds during the warning phase, intensifies during the siege with possible rain and wind, and clears at dawn.",
+    SN_SiegeWeatherIntensity = "Weather Intensity",
+    SN_SiegeWeatherIntensity_tooltip = "Multiplier for weather effect strength. 1.0 = default. Lower = subtler fog/rain/wind. Higher = heavier atmosphere. 0 = effectively disabled.",
 }

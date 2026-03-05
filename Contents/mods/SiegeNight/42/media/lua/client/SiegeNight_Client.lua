@@ -110,13 +110,62 @@ local BREAK_SPEECHES = {
 -- ==========================================
 -- SOUND SYSTEM
 -- ==========================================
+-- Custom sounds defined in media/scripts/SiegeNight_sounds.txt
+-- Sound names: SN_SiegeHorn, SN_Warning, SN_WaveIncoming, SN_WaveBreak, SN_DawnClear, SN_MiniHordeAlert
+-- If custom .ogg files are missing, falls back to vanilla PZ sounds.
+
+local warningEmitter = nil
+
+local function playSound(soundName, fallback)
+    local sm = getSoundManager()
+    if not sm then return nil end
+    local emitter = sm:PlaySound(soundName, false, 0)
+    if not emitter and fallback then
+        emitter = sm:PlaySound(fallback, false, 0)
+    end
+    return emitter
+end
 
 local function playSiegeHorn()
-    local emitter = getSoundManager():PlaySound("zombierand7", false, 0)
+    local emitter = playSound("SN_SiegeHorn", "zombierand7")
     if emitter then
-        getSoundManager():PlayAsMusic("zombierand7", emitter, false, 0)
-        emitter:setVolume(0.20)
+        getSoundManager():PlayAsMusic("SN_SiegeHorn", emitter, false, 0)
+        emitter:setVolume(0.35)
     end
+end
+
+local function playWaveIncoming()
+    playSound("SN_WaveIncoming", nil)
+end
+
+local function playWaveBreak()
+    playSound("SN_WaveBreak", nil)
+end
+
+local function playDawnClear()
+    playSound("SN_DawnClear", nil)
+end
+
+local function playMiniHordeAlert()
+    playSound("SN_MiniHordeAlert", nil)
+end
+
+local function stopWarningAmbience()
+    if warningEmitter then
+        local sm = getSoundManager()
+        if sm then
+            sm:StopSound(warningEmitter)
+        end
+        warningEmitter = nil
+    end
+end
+
+local function startWarningAmbience()
+    stopWarningAmbience()
+    local sm = getSoundManager()
+    if not sm then return end
+    warningEmitter = sm:PlaySound("SN_Warning", false, 0)
+    -- SN_Warning is defined as loop=true in script, so it loops automatically
 end
 
 -- ==========================================
@@ -148,6 +197,7 @@ end
 
 local function onEnterWarning()
     SN.log("Client: Entering WARNING state")
+    startWarningAmbience()
     local player = getPlayer()
     if player and SN.getSandbox("WarningSignsEnabled") then
         trySpeech(WARNING_SPEECHES, SN.getCurrentHour())
@@ -156,6 +206,7 @@ end
 
 local function onEnterActive()
     SN.log("Client: Entering ACTIVE state")
+    stopWarningAmbience()
     playSiegeHorn()
     local player = getPlayer()
     if player then
@@ -183,6 +234,8 @@ local clientDawnFallback = false
 
 local function onEnterDawn()
     SN.log("Client: Siege ended!" .. (clientDawnFallback and " (dawn fallback)" or ""))
+    stopWarningAmbience()
+    playDawnClear()
     local player = getPlayer()
     if player then
         local kills = 0
@@ -225,6 +278,7 @@ end
 
 local function onEnterIdle()
     SN.log("Client: Entering IDLE state")
+    stopWarningAmbience()
 end
 
 -- ==========================================
@@ -302,6 +356,7 @@ local function onServerCommand(module, command, args)
         if player then
             player:Say("Wave " .. waveIdx .. " of " .. totalW .. "!")
         end
+        playWaveIncoming()
         playSiegeHorn()
 
     elseif command == "WaveBreak" then
@@ -312,6 +367,7 @@ local function onServerCommand(module, command, args)
         local rt = SN._clientRealtime
         rt.waveIndex = waveIdx
         rt.phase = SN.PHASE_BREAK
+        playWaveBreak()
         local player = getPlayer()
         if player then
             trySpeech(BREAK_SPEECHES, nil)
@@ -415,6 +471,7 @@ local function onServerCommand(module, command, args)
     elseif command == "MiniHorde" then
         local count = args["count"] or 0
         local dir = args["direction"] or 0
+        playMiniHordeAlert()
         local player = getPlayer()
         if player and count > 0 then
             local dirName = SN.getDirName(dir)
@@ -486,6 +543,7 @@ local function onTick()
 
                     if clientCurrentWave > 0 then
                         player:Say("Wave " .. newWave .. " of " .. totalW .. "!")
+                        playWaveIncoming()
                         playSiegeHorn()
                     end
                     clientCurrentWave = newWave

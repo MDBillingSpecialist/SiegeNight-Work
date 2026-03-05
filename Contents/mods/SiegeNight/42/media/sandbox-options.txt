@@ -308,3 +308,21 @@ option SiegeNight.MiniHorde_EstablishmentScaling
 	page = SiegeNightMiniHorde,
 	translation = SN_MiniHorde_EstablishmentScaling,
 }
+
+option SiegeNight.SiegeWeatherEnabled
+{
+	type = boolean,
+	default = true,
+	page = SiegeNight,
+	translation = SN_SiegeWeatherEnabled,
+}
+
+option SiegeNight.SiegeWeatherIntensity
+{
+	type = double,
+	min = 0.0,
+	max = 2.0,
+	default = 1.0,
+	page = SiegeNight,
+	translation = SN_SiegeWeatherIntensity,
+}
