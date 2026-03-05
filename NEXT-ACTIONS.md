@@ -4,7 +4,7 @@
 - SteamCMD upload still requires interactive login (publishing account). Previous error: **Access Denied**.
 
 ## Current staged version
-- **2.5.44** staged in `C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents`
+- **2.5.45** staged in `C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents`
 
 ## Priority validation (MP)
 1) Repro the new MP report:
