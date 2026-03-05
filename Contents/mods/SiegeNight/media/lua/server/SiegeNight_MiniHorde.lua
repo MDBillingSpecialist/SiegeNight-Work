@@ -266,6 +266,25 @@ local function onEveryTenMinutes()
         return
     end
 
+    -- Daily hard cap: reset counter at midnight (new day), then enforce limit.
+    local currentDay = math.floor(now / 24)
+    if (siegeData.miniHordeDay or -1) ~= currentDay then
+        siegeData.miniHordeDay = currentDay
+        siegeData.miniHordesToday = 0
+    end
+    local maxPerDay = tonumber(SN.getSandbox("MiniHorde_MaxPerDay")) or 5
+    if maxPerDay < 1 then maxPerDay = 1 end
+    if (siegeData.miniHordesToday or 0) >= maxPerDay then
+        -- Daily limit reached; still decay heat but don't trigger.
+        for cellKey, data in pairs(heatGrid) do
+            data.heat = math.max(0, data.heat - 8)
+            if data.heat <= 0 and (now - data.lastTrigger) > cooldownHours then
+                heatGrid[cellKey] = nil
+            end
+        end
+        return
+    end
+
     -- GLOBAL cooldown (MP): prevent large servers from triggering mini-hordes every tick
     -- just because players are spread across many heat cells.
     local globalLast = siegeData.miniHordeLastTrigger or 0
@@ -280,6 +299,7 @@ local function onEveryTenMinutes()
             data.heat = 0
             data.lastTrigger = now
             siegeData.miniHordeLastTrigger = now
+            siegeData.miniHordesToday = (siegeData.miniHordesToday or 0) + 1
             globalLast = now
             inGlobalGrace = true
         end

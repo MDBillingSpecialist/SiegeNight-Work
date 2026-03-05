@@ -236,6 +236,16 @@ option SiegeNight.MiniHorde_CooldownMinutes
 	translation = SN_MiniHorde_CooldownMinutes,
 }
 
+option SiegeNight.MiniHorde_MaxPerDay
+{
+	type = integer,
+	min = 1,
+	max = 50,
+	default = 5,
+	page = SiegeNightMiniHorde,
+	translation = SN_MiniHorde_MaxPerDay,
+}
+
 option SiegeNight.MiniHorde_ActivityScaling
 {
 	type = boolean,
