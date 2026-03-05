@@ -33,6 +33,14 @@ Sandbox_EN = {
     SN_SiegeEndHour_tooltip = "In-game hour the siege ends. Default: 6 (6 AM). If you set a start/end window, warnings happen on the siege day before the start hour.",
     SN_WaveBreakSeconds = "Max Wave Break (Seconds)",
     SN_WaveBreakSeconds_tooltip = "Caps the break duration between waves. 0 = use automatic scaling (3-10 min based on horde size). Set a value like 90 or 120 to keep breaks short even on large sieges.",
+    SN_MaxActiveZombies = "Max Active Zombies",
+    SN_MaxActiveZombies_tooltip = "Maximum alive siege zombies allowed at one time per player group. Spawning pauses until some are killed. Prevents lag from too many zombies alive at once. Default: 300.",
+    SN_SpawnAnchor = "Spawn Anchor Mode",
+    SN_SpawnAnchor_tooltip = "Where zombies target during a siege. 1 = Player position (default). 2 = Nearest claimed safehouse. Safehouse mode makes zombies attack your base even if you leave.",
+    SN_SafehouseSearchRadius = "Safehouse Search Radius",
+    SN_SafehouseSearchRadius_tooltip = "How far (in tiles) to search for claimed safehouses when using Safehouse anchor mode. Only used when Spawn Anchor is set to 2. Default: 300.",
+    SN_SafehouseMergeDistance = "Safehouse Merge Distance",
+    SN_SafehouseMergeDistance_tooltip = "Safehouses closer than this many tiles are treated as one target. Prevents zombies splitting between buildings that are right next to each other. Default: 50.",
 
     -- Special zombie settings
     SN_SpecialZombiesEnabled = "Enable Special Zombies",

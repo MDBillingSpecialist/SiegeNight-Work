@@ -133,6 +133,45 @@ option SiegeNight.SharedSpawnRadius
     translation = SN_SharedSpawnRadius,
 }
 
+option SiegeNight.MaxActiveZombies
+{
+	type = integer,
+	min = 50,
+	max = 2000,
+	default = 300,
+	page = SiegeNight,
+	translation = SN_MaxActiveZombies,
+}
+
+option SiegeNight.SpawnAnchor
+{
+	type = integer,
+	min = 1,
+	max = 2,
+	default = 1,
+	page = SiegeNight,
+	translation = SN_SpawnAnchor,
+}
+
+option SiegeNight.SafehouseSearchRadius
+{
+	type = integer,
+	min = 50,
+	max = 1000,
+	default = 300,
+	page = SiegeNight,
+	translation = SN_SafehouseSearchRadius,
+}
+
+option SiegeNight.SafehouseMergeDistance
+{
+	type = integer,
+	min = 10,
+	max = 200,
+	default = 50,
+	page = SiegeNight,
+	translation = SN_SafehouseMergeDistance,
+}
 
 option SiegeNight.SpecialZombiesEnabled
 {
