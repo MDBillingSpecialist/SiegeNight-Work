@@ -142,7 +142,7 @@ local function findNearestActiveCluster(x, y)
     for _, cs in pairs(clusterSieges) do
         if cs.siegeState == SN.STATE_ACTIVE then
             local cp = cs.centroidPlayer
-            if cp then
+            if cp and cp:isAlive() then
                 local dx = x - cp:getX()
                 local dy = y - cp:getY()
                 local d = dx*dx + dy*dy
@@ -203,23 +203,14 @@ end
 
 local function isZombieOnGround(z)
     if not z then return false end
-    if z.isOnFloor then
-        local ok, v = pcall(function() return z:isOnFloor() end)
-        if ok and v == true then return true end
-    end
-    if z.isKnockedDown then
-        local ok, v = pcall(function() return z:isKnockedDown() end)
-        if ok and v == true then return true end
-    end
-    if z.isFallOnFront then
-        local ok, v = pcall(function() return z:isFallOnFront() end)
-        if ok and v == true then return true end
-    end
-    if z.isFallOnBack then
-        local ok, v = pcall(function() return z:isFallOnBack() end)
-        if ok and v == true then return true end
-    end
-    return false
+    local ok, result = pcall(function()
+        if z.isOnFloor and z:isOnFloor() then return true end
+        if z.isKnockedDown and z:isKnockedDown() then return true end
+        if z.isFallOnFront and z:isFallOnFront() then return true end
+        if z.isFallOnBack and z:isFallOnBack() then return true end
+        return false
+    end)
+    return ok and result or false
 end
 
 local function forceKillZombie(z)
@@ -622,20 +613,22 @@ end
 -- ==========================================
 
 local function countAliveSiegeZombies(cs)
-    local alive = {}
-    local count = 0
-    for _, entry in ipairs(cs.siegeZombies) do
-        local z = entry.zombie
+    local list = cs.siegeZombies
+    local writeIdx = 0
+    for readIdx = 1, #list do
+        local entry = list[readIdx]
+        local z = entry and entry.zombie
         if z then
             local ok, dead = pcall(function() return z:isDead() end)
             if ok and not dead then
-                table.insert(alive, entry)
-                count = count + 1
+                writeIdx = writeIdx + 1
+                list[writeIdx] = entry
             end
         end
     end
-    cs.siegeZombies = alive
-    return count
+    -- Trim dead entries from end (in-place, no new table allocation)
+    for i = writeIdx + 1, #list do list[i] = nil end
+    return writeIdx
 end
 
 -- ==========================================

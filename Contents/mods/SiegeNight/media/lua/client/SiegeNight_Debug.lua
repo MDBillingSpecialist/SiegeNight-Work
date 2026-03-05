@@ -91,15 +91,15 @@ function SiegeNightDebugHUD:prerender()
     y = y + lh
 
     -- Siege details
-    self:drawText("Siege #" .. siegeData.siegeCount .. " | Dir: " .. (siegeData.lastDirection >= 0 and SN.DIR_NAMES[siegeData.lastDirection + 1] or "none"), x, y, 0.8, 0.8, 0.8, 1.0, font)
+    self:drawText("Siege #" .. (siegeData.siegeCount or 0) .. " | Dir: " .. (siegeData.lastDirection and siegeData.lastDirection >= 0 and SN.DIR_NAMES[siegeData.lastDirection + 1] or "none"), x, y, 0.8, 0.8, 0.8, 1.0, font)
     y = y + lh
 
     -- Spawn progress
     local spawnPct = 0
-    if siegeData.targetZombies > 0 then
-        spawnPct = math.floor(siegeData.spawnedThisSiege / siegeData.targetZombies * 100)
+    if (siegeData.targetZombies or 0) > 0 then
+        spawnPct = math.floor((siegeData.spawnedThisSiege or 0) / siegeData.targetZombies * 100)
     end
-    self:drawText("Spawned: " .. siegeData.spawnedThisSiege .. "/" .. siegeData.targetZombies .. " (" .. spawnPct .. "%)", x, y, 0.8, 0.8, 0.8, 1.0, font)
+    self:drawText("Spawned: " .. (siegeData.spawnedThisSiege or 0) .. "/" .. (siegeData.targetZombies or 0) .. " (" .. spawnPct .. "%)", x, y, 0.8, 0.8, 0.8, 1.0, font)
     y = y + lh
 
     -- Kill tracking
@@ -125,7 +125,7 @@ function SiegeNightDebugHUD:prerender()
         local hsd = SN.getHoursSinceDusk()
         self:drawText("Hours since dusk: " .. string.format("%.1f", hsd), x, y, 1.0, 0.6, 0.3, 1.0, font)
         y = y + lh
-        self:drawText("Tanks: " .. siegeData.tanksSpawned .. "/" .. SN.getSandbox("TankCount"), x, y, 1.0, 0.6, 0.3, 1.0, font)
+        self:drawText("Tanks: " .. (siegeData.tanksSpawned or 0) .. "/" .. (SN.getSandbox("TankCount") or 0), x, y, 1.0, 0.6, 0.3, 1.0, font)
         y = y + lh
     end
 

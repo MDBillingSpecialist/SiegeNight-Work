@@ -538,11 +538,8 @@ local function onGameStart()
     end
 end
 
--- On zombie death: no redress needed. addZombiesInOutfit handles clothing,
--- and corpses inherit visuals from the zombie's client-side model automatically.
-local function onZombieDead(zombie)
-    -- Intentionally empty for clothing. Kill tracking is handled server-side.
-end
+-- Note: No client-side OnZombieDead handler needed. addZombiesInOutfit handles
+-- clothing, corpses inherit visuals, and kill tracking is server-side.
 
 -- ==========================================
 -- EVENT HOOKS
@@ -551,5 +548,4 @@ Events.OnGameStart.Add(onGameStart)
 Events.OnServerCommand.Add(onServerCommand)
 Events.OnTick.Add(onTick)
 Events.EveryHours.Add(onEveryHour)
-Events.OnZombieDead.Add(onZombieDead)
 

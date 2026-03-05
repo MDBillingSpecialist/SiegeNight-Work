@@ -156,7 +156,8 @@ local function onHitZombie(zombie, character, bodyPartType, handWeapon)
     if not instanceof(character, "IsoPlayer") then return end
 
     -- Don't count kills of mini-horde zombies as heat (prevents feedback loop)
-    if zombie and zombie:getModData() and zombie:getModData().SN_MiniHorde then return end
+    local zmd = zombie and zombie:getModData()
+    if zmd and zmd.SN_MiniHorde then return end
 
     local px, py = character:getX(), character:getY()
     if type(px) ~= "number" or type(py) ~= "number" then return end
@@ -441,6 +442,7 @@ local function onMiniHordeTick()
                     local spawnDist = SN.getSandbox("SpawnDistance")
                     local batchSize = math.min(3, job.remaining)
 
+                    local batchSpawned = 0
                     for b = 1, batchSize do
                         if job.remaining <= 0 then break end
                         local spawned = false
@@ -464,24 +466,28 @@ local function onMiniHordeTick()
                                 if ok and zombies and zombies:size() > 0 then
                                     local zombie = zombies:get(0)
                                     local p = job.player
-                                    -- Attractor sound required to trigger B42 zombie hearing AI.
-                                    -- Radius 80 (vs siege's 200) to minimize pulling distant roamers.
                                     pcall(function()
                                         zombie:pathToSound(px, py, 0)
                                         zombie:setTarget(p)
                                         zombie:setAttackedBy(p)
                                         zombie:spottedNew(p, true)
                                         zombie:addAggro(p, 1)
-                                        getWorldSoundManager():addSound(p, math.floor(px), math.floor(py), 0, 80, 80)
                                     end)
                                     zombie:getModData().SN_MiniHorde = true
                                     table.insert(job.zombieList, zombie)
+                                    batchSpawned = batchSpawned + 1
                                 end
                                 job.remaining = job.remaining - 1
                                 spawned = true
                                 break
                             end
                         end
+                    end
+                    -- One attractor sound per batch (not per zombie)
+                    if batchSpawned > 0 then
+                        pcall(function()
+                            getWorldSoundManager():addSound(job.player, math.floor(px), math.floor(py), 0, 80, 80)
+                        end)
                     end
                 end
             else
@@ -499,9 +505,9 @@ local function onMiniHordeTick()
             job.repathTick = 0
             local p = job.player
             if p and p:isAlive() then
-                local okP, pX = pcall(function() return p:getX() end)
-                local okPY, pY = pcall(function() return p:getY() end)
-                if okP and okPY and type(pX) == "number" and type(pY) == "number" then
+                -- Player alive check passed — getX/getY safe without pcall
+                local pX, pY = p:getX(), p:getY()
+                if type(pX) == "number" and type(pY) == "number" then
                     -- Step 1: Prune dead spawned zombies first
                     local alive = {}
                     for _, zombie in ipairs(job.zombieList) do
@@ -596,10 +602,9 @@ local function onMiniHordeZombieDead(zombie)
     if not okZ or not zx then return end
 
     for _, job in ipairs(activeMiniHordes) do
-        if job.player and job.totalToSpawn and (job.killCount or 0) < job.totalToSpawn then
-            local okP, px = pcall(function() return job.player:getX() end)
-            local okPY, py = pcall(function() return job.player:getY() end)
-            if okP and okPY and px and py then
+        if job.player and job.player:isAlive() and job.totalToSpawn and (job.killCount or 0) < job.totalToSpawn then
+            local px, py = job.player:getX(), job.player:getY()
+            if px and py then
                 local dist = math.abs(zx - px) + math.abs(zy - py)
                 if dist < 100 then
                     job.killCount = (job.killCount or 0) + 1
