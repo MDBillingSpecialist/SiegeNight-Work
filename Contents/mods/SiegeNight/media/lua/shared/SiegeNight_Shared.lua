@@ -9,7 +9,7 @@ local SN = {}
 -- ==========================================
 -- VERSION
 -- ==========================================
-SN.VERSION = "2.6.16"
+SN.VERSION = "2.6.17"
 SN.MOD_ID = "SiegeNight"
 SN.CLIENT_MODULE = "SiegeNightModule"
 
@@ -134,6 +134,7 @@ SN.DEFAULTS = {
     MiniHorde_MaxZombies = 50,
     MiniHorde_MinZombies = 10,
     MiniHorde_CooldownMinutes = 30,
+    MiniHorde_MaxPerDay = 5,
     MiniHorde_ActivityScaling = true,
     -- Scaling factors
     MiniHorde_PlayerScaling = true,

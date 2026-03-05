@@ -261,6 +261,18 @@ local function onEveryTenMinutes()
     local threshold = tonumber(SN.getSandbox("MiniHorde_NoiseThreshold")) or 80
     if threshold < 1 then threshold = 1 end
 
+    -- Per-day cap: prevents servers from getting stuck in a mini-horde loop.
+    local today = math.floor(SN.getActualDay())
+    if siegeData.miniHordeDay ~= today then
+        siegeData.miniHordeDay = today
+        siegeData.miniHordeTriggersToday = 0
+    end
+    local maxPerDay = tonumber(SN.getSandbox("MiniHorde_MaxPerDay")) or 5
+    if maxPerDay < 0 then maxPerDay = 0 end
+    if maxPerDay > 0 and (siegeData.miniHordeTriggersToday or 0) >= maxPerDay then
+        return
+    end
+
     -- If a mini-horde is currently spawning, don't trigger another one.
     -- This prevents stacked jobs from looking like "nonstop" hordes even with a sane cooldown.
     if activeMiniHordes and #activeMiniHordes > 0 then
@@ -297,6 +309,7 @@ local function onEveryTenMinutes()
 
         if (not inGlobalGrace) and (not inGrace) and data.heat >= threshold then
             triggerMiniHorde(cellKey, data, playerList)
+            siegeData.miniHordeTriggersToday = (siegeData.miniHordeTriggersToday or 0) + 1
             data.heat = 0
             data.lastTrigger = now
             siegeData.miniHordeLastTrigger = now
