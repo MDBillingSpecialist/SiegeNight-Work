@@ -726,13 +726,16 @@ local function spawnOneZombie(spawnPlayer, aggroPlayer, primaryDir, specialType,
             SN.debug("Spawned " .. specialType .. " with lore-at-birth (outfit=" .. tostring(outfit) .. ")")
         end
         if aggroPlayer then
-            pcall(function() zombie:pathToSound(aggroPlayer:getX(), aggroPlayer:getY(), 0) end)
-            pcall(function() zombie:setTarget(aggroPlayer) end)
-            pcall(function() zombie:setAttackedBy(aggroPlayer) end)
-            pcall(function() zombie:spottedNew(aggroPlayer, true) end)
-            pcall(function() zombie:addAggro(aggroPlayer, 1) end)
-            -- Siege attractor: LOUD sound pulls ALL nearby zombies (siege = pull everybody)
-            pcall(function() getWorldSoundManager():addSound(aggroPlayer, math.floor(aggroPlayer:getX()), math.floor(aggroPlayer:getY()), 0, 200, 200) end)
+            -- Consolidated pcall: all targeting calls in one wrapper (lag optimization)
+            pcall(function()
+                zombie:pathToSound(aggroPlayer:getX(), aggroPlayer:getY(), 0)
+                zombie:setTarget(aggroPlayer)
+                zombie:setAttackedBy(aggroPlayer)
+                zombie:spottedNew(aggroPlayer, true)
+                zombie:addAggro(aggroPlayer, 1)
+                -- Siege attractor: LOUD sound pulls ALL nearby zombies (siege = pull everybody)
+                getWorldSoundManager():addSound(aggroPlayer, math.floor(aggroPlayer:getX()), math.floor(aggroPlayer:getY()), 0, 200, 200)
+            end)
         end
         table.insert(zombieList, { zombie = zombie, player = aggroPlayer, anchorX = anchorX, anchorY = anchorY })
         return true
@@ -854,16 +857,19 @@ local function tickClusterActive(cs, siegeData)
                         pcall(function() zombie:setTarget(nil) end)
                         table.insert(alive, entry)
                     else
-                        local pathX = entry.anchorX or (player and player:getX()) or nil
-                        local pathY = entry.anchorY or (player and player:getY()) or nil
-                        if pathX and pathY then pcall(function() zombie:pathToSound(pathX, pathY, 0) end) end
-                        -- Aggressive tracking: make zombie actively hunt the player
-                        if not entry.anchorX then
-                            pcall(function() zombie:setTarget(player) end)
-                            pcall(function() zombie:setAttackedBy(player) end)
-                            pcall(function() zombie:spottedNew(player, true) end)
-                            pcall(function() zombie:addAggro(player, 1) end)
-                        end
+                        -- Consolidated pcall: all repath + targeting calls in one wrapper (lag optimization)
+                        pcall(function()
+                            local pathX = entry.anchorX or (player and player:getX()) or nil
+                            local pathY = entry.anchorY or (player and player:getY()) or nil
+                            if pathX and pathY then zombie:pathToSound(pathX, pathY, 0) end
+                            -- Aggressive tracking: make zombie actively hunt the player
+                            if not entry.anchorX then
+                                zombie:setTarget(player)
+                                zombie:setAttackedBy(player)
+                                zombie:spottedNew(player, true)
+                                zombie:addAggro(player, 1)
+                            end
+                        end)
                         table.insert(alive, entry)
                         repathed = repathed + 1
                     end
@@ -1269,7 +1275,7 @@ local function onClientCommand(module, command, player, args)
         for idx, outfit in ipairs(SN.ZOMBIE_OUTFITS) do
             local sx = px + ((idx % 10) * 3) - 15
             local sy = py + (math.floor(idx / 10) * 3) - 6
-            local ok, zombies = pcall(function() return addZombiesInOutfit(sx, sy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0) end)
+            local ok, zombies = pcall(addZombiesInOutfit, sx, sy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
             if ok and zombies and zombies:size() > 0 then
                 local z = zombies:get(0)
                 z:getModData().SN_TestOutfit = outfit
@@ -1387,11 +1393,14 @@ local function onClientCommand(module, command, player, args)
                         if ok and zombies and zombies:size() > 0 then
                             local z = zombies:get(0)
                             z:getModData().SN_Siege = true
-                            pcall(function() z:pathToSound(px, py, 0) end)
-                            pcall(function() z:setTarget(player) end)
-                            pcall(function() z:setAttackedBy(player) end)
-                            pcall(function() z:spottedNew(player, true) end)
-                            pcall(function() z:addAggro(player, 1) end)
+                            -- Consolidated pcall: all targeting calls in one wrapper (lag optimization)
+                            pcall(function()
+                                z:pathToSound(px, py, 0)
+                                z:setTarget(player)
+                                z:setAttackedBy(player)
+                                z:spottedNew(player, true)
+                                z:addAggro(player, 1)
+                            end)
                         end
                         count = count + 1
                         spawned = true
@@ -1444,11 +1453,14 @@ local function onClientCommand(module, command, player, args)
                         zombie:getModData().SN_Siege = true
                         if specialType == "breaker" then zombie:setHealth(2.0)
                         elseif specialType == "tank" then zombie:setHealth(healthMult) end
-                        pcall(function() zombie:pathToSound(px, py, 0) end)
-                        pcall(function() zombie:setTarget(player) end)
-                        pcall(function() zombie:setAttackedBy(player) end)
-                        pcall(function() zombie:spottedNew(player, true) end)
-                        pcall(function() zombie:addAggro(player, 1) end)
+                        -- Consolidated pcall: all targeting calls in one wrapper (lag optimization)
+                        pcall(function()
+                            zombie:pathToSound(px, py, 0)
+                            zombie:setTarget(player)
+                            zombie:setAttackedBy(player)
+                            zombie:spottedNew(player, true)
+                            zombie:addAggro(player, 1)
+                        end)
                         table.insert(results, specialType)
                         SN.log("DEBUG: Spawned " .. specialType .. " at " .. fx .. "," .. fy .. " by " .. (player:getUsername() or "admin"))
                     end
