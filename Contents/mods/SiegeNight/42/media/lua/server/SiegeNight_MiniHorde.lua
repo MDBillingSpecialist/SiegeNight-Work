@@ -505,7 +505,7 @@ local function onMiniHordeTick()
             job.repathTick = 0
             local p = job.player
             if p and p:isAlive() then
-                -- Player alive check passed — getX/getY safe without pcall
+                -- Player alive check passed - getX/getY safe without pcall
                 local pX, pY = p:getX(), p:getY()
                 if type(pX) == "number" and type(pY) == "number" then
                     -- Step 1: Prune dead spawned zombies first
@@ -592,7 +592,7 @@ end
 -- MINI-HORDE KILL COUNTER
 -- ==========================================
 -- Any zombie killed near an active mini-horde player counts toward the
--- kill target. Player doesn't have to hunt down specific tagged zombies —
+-- kill target. Player doesn't have to hunt down specific tagged zombies -
 -- kill ANY 22 zombies (spawned or attracted roamers) and the attractor stops.
 
 local function onMiniHordeZombieDead(zombie)
@@ -609,7 +609,7 @@ local function onMiniHordeZombieDead(zombie)
                 if dist < 100 then
                     job.killCount = (job.killCount or 0) + 1
                     if job.killCount >= job.totalToSpawn then
-                        SN.log("Mini-horde kill target reached (" .. job.killCount .. "/" .. job.totalToSpawn .. ") — attractor stopped")
+                        SN.log("Mini-horde kill target reached (" .. job.killCount .. "/" .. job.totalToSpawn .. ") - attractor stopped")
                     end
                     return  -- credit to first matching job only
                 end
