@@ -435,8 +435,8 @@ local function onMiniHordeTick()
                                     pcall(function() zombie:setAttackedBy(p) end)
                                     pcall(function() zombie:spottedNew(p, true) end)
                                     pcall(function() zombie:addAggro(p, 1) end)
-                                    -- Attractor sound: pulls nearby zombies toward player (convergence)
-                                    pcall(function() getWorldSoundManager():addSound(p, math.floor(pX), math.floor(p:getY()), 0, 200, 200) end)
+                                    -- NO attractor sound here: mini-hordes only converge spawned
+                                    -- zombies, they do NOT pull in all nearby zombies like sieges do.
                                 else
                                     job.remaining = 0
                                 end
@@ -482,10 +482,9 @@ local function onMiniHordeTick()
                         end
                     end
                     job.zombieList = alive
-                    -- Attractor sound: converge ALL nearby zombies on the player
-                    if #alive > 0 then
-                        pcall(function() getWorldSoundManager():addSound(p, math.floor(pX), math.floor(pY), 0, 200, 200) end)
-                    end
+                    -- NO attractor sound: only the tracked mini-horde zombies converge,
+                    -- not every zombie in the area. Siege uses addSound for full-area pull;
+                    -- mini-hordes rely solely on per-zombie pathToSound + targeting.
                 end
             end
         end
