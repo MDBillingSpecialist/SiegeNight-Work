@@ -36,7 +36,7 @@
 - Ensure all mod spawns pass `healthMult = 1.0` into `addZombiesInOutfit`; specials get health via server-side stat edits only.
 
 ## Notes on attempted fix (2.5.45)
-- Mini-hordes: fixed a scoping bug where the "don’t trigger while one is spawning" guard could reference a nil global, allowing stacked spawn jobs (looks like nonstop hordes).
+- Mini-hordes: fixed a scoping bug where the "don't trigger while one is spawning" guard could reference a nil global, allowing stacked spawn jobs (looks like nonstop hordes).
 - Mini-hordes: clamp cooldown/threshold defensively (handles string/zero values on some dedi configs).
 
 ## When ready to ship
