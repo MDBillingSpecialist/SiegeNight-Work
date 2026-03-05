@@ -1513,6 +1513,9 @@ local function onServerTick()
     local siegeData = SN.getWorldData()
     if not siegeData then return end
 
+    -- Capture state early so lastServerState always gets updated (prevents infinite re-trigger if later code errors)
+    local currentTickState = siegeData.siegeState
+
     checkVoteTimeout()
 
     -- Debug fast-forward: restore normal speed after 1 hour passes
@@ -1648,16 +1651,20 @@ local function onServerTick()
         end
     end
 
-    -- Debug-forced state detection
-    if siegeData.siegeState == SN.STATE_ACTIVE and lastServerState ~= SN.STATE_ACTIVE then
-        if next(clusterSieges) == nil and siegeData.targetZombies > 0 then
+    -- Debug-forced state detection (transition to ACTIVE)
+    -- Uses currentTickState captured at top of function so lastServerState always gets updated
+    if currentTickState == SN.STATE_ACTIVE and lastServerState ~= SN.STATE_ACTIVE then
+        -- Check if clusters need initialization (e.g. debug command set state without calling enterGlobalActiveState)
+        local hasAnyCluster = false
+        for _ in pairs(clusterSieges) do hasAnyCluster = true; break end
+        if not hasAnyCluster and (siegeData.targetZombies or 0) > 0 then
             initializeClusters(getPlayerList(), siegeData)
         end
         if not siegeData.siegeTrigger then
             siegeData.siegeTrigger = "debug"
         end
     end
-    lastServerState = siegeData.siegeState
+    lastServerState = currentTickState
 end
 
 -- ==========================================
@@ -1715,7 +1722,8 @@ local function onPlayerConnect(player)
     if isServer() then
         ModData.transmit("SiegeNight")
         local siegeData = SN.getWorldData()
-        if siegeData and siegeData.siegeState == SN.STATE_ACTIVE and next(clusterSieges) then
+        local hasCluster = false; for _ in pairs(clusterSieges) do hasCluster = true; break end
+        if siegeData and siegeData.siegeState == SN.STATE_ACTIVE and hasCluster then
             local bestCS = findNearestActiveCluster(player:getX(), player:getY())
             if bestCS then
                 table.insert(bestCS.members, player)
