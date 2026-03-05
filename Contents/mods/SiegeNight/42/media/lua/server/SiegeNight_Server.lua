@@ -1460,40 +1460,19 @@ local function onClientCommand(module, command, player, args)
 
     elseif command == "CmdDebugMiniHorde" then
         if not isPlayerAdmin(player) then return end
-        local px, py = player:getX(), player:getY()
-        local count = 25
-        local dir = ZombRand(8)
-        local spawnDist = SN.getSandbox("SpawnDistance")
-        local spawned = 0
-        for i = 1, count do
-            local baseX = px + SN.DIR_X[dir + 1] * spawnDist
-            local baseY = py + SN.DIR_Y[dir + 1] * spawnDist
-            local spread = ZombRand(41) - 20
-            local perpX = -SN.DIR_Y[dir + 1]
-            local perpY = SN.DIR_X[dir + 1]
-            local fx = math.floor(baseX + perpX * spread)
-            local fy = math.floor(baseY + perpY * spread)
-            local square = getWorld():getCell():getGridSquare(fx, fy, 0)
-            if square and square:isFree(false) then
-                local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
-                local ok, zombies = pcall(addZombiesInOutfit, fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
-                if ok and zombies and zombies:size() > 0 then
-                    local z = zombies:get(0)
-                    z:getModData().SN_MiniHorde = true
-                    -- Mini-horde: targeted hunting only, NO big attractor sound
-                    pcall(function() z:pathToSound(px, py, 0) end)
-                    pcall(function() z:setTarget(player) end)
-                    pcall(function() z:setAttackedBy(player) end)
-                    pcall(function() z:spottedNew(player, true) end)
-                    pcall(function() z:addAggro(player, 1) end)
-                end
-                spawned = spawned + 1
-            end
+        -- Use the real mini-horde system (staggered spawn + repath convergence).
+        -- SN.debugForceMiniHorde creates a proper job in activeMiniHordes with
+        -- zombie tracking and 5-second repath, so debug behaves identically to
+        -- a heat-triggered horde.
+        if SN.debugForceMiniHorde then
+            local count, dir = SN.debugForceMiniHorde(player)
+            local dirName = (dir and SN.DIR_NAMES) and SN.DIR_NAMES[dir + 1] or "?"
+            SN.log("DEBUG: Mini-horde by " .. (player:getUsername() or "admin") .. ": " .. (count or 25) .. " from " .. dirName)
+            sendResponseToPlayer(player, "Mini-horde! " .. (count or 25) .. " from " .. dirName)
+        else
+            SN.log("ERROR: SN.debugForceMiniHorde is nil")
+            sendResponseToPlayer(player, "ERROR: MiniHorde module not loaded")
         end
-        -- Mini-horde does NOT broadcast a huge world sound (unlike siege)
-        SN.log("DEBUG: Mini-horde by " .. (player:getUsername() or "admin") .. ": " .. spawned .. " from " .. SN.DIR_NAMES[dir + 1])
-        sendResponseToPlayer(player, "Mini-horde! " .. spawned .. " from " .. SN.DIR_NAMES[dir + 1])
-        sendServerCommand(player, SN.CLIENT_MODULE, "MiniHorde", { count = spawned, direction = dir })
 
     elseif command == "CmdDebugFastForward" then
         if not isPlayerAdmin(player) then return end

@@ -530,6 +530,44 @@ local function onMiniHordeTick()
 end
 
 -- ==========================================
+-- DEBUG API: force a mini-horde through the real spawn + repath system
+-- ==========================================
+
+--- Debug helper: forces a mini-horde on the given player using the real
+--- staggered spawn + repath convergence system (same code path as a
+--- heat-triggered horde). Called from Debug.lua (SP) and Server.lua
+--- CmdDebugMiniHorde (MP).
+function SN.debugForceMiniHorde(player)
+    if not player then return 0 end
+    local count = 25
+    local dir = ZombRand(8)
+
+    -- Notify client(s) in MP
+    if isServer() then
+        sendServerCommand(SN.CLIENT_MODULE, "MiniHorde", {
+            count = count,
+            direction = dir,
+        })
+    end
+
+    -- Create a proper staggered spawn job with repath tracking
+    table.insert(activeMiniHordes, {
+        player = player,
+        remaining = count,
+        tickCounter = 0,
+        spawnInterval = 8,
+        direction = dir,
+        announced = false,
+        zombieList = {},
+        repathTick = 0,
+    })
+
+    local dirName = SN.getDirName and SN.getDirName(dir) or tostring(dir)
+    SN.log("DEBUG: Mini-horde forced. " .. count .. " zombies from " .. dirName)
+    return count, dir
+end
+
+-- ==========================================
 -- EVENT HOOKS
 -- ==========================================
 Events.EveryTenMinutes.Add(onEveryTenMinutes)

@@ -403,43 +403,17 @@ local function forceMiniHorde()
         return
     end
 
-    -- SP: spawn locally
-    local px, py = player:getX(), player:getY()
-    local count = 25
-    local dir = ZombRand(8)
-    local spawnDist = SN.getSandbox("SpawnDistance")
-    local spawned = 0
-
-    for i = 1, count do
-        local baseX = px + SN.DIR_X[dir + 1] * spawnDist
-        local baseY = py + SN.DIR_Y[dir + 1] * spawnDist
-        local spread = ZombRand(41) - 20
-        local perpX = -SN.DIR_Y[dir + 1]
-        local perpY = SN.DIR_X[dir + 1]
-        local fx = math.floor(baseX + perpX * spread)
-        local fy = math.floor(baseY + perpY * spread)
-
-        local square = getWorld():getCell():getGridSquare(fx, fy, 0)
-        if square and square:isFree(false) then
-            local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
-            local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
-            if zombies and zombies:size() > 0 then
-                local z = zombies:get(0)
-                z:pathToCharacter(player)
-                z:setTarget(player)
-                z:setAttackedBy(player)
-                z:spottedNew(player, true)
-                z:addAggro(player, 1)
-                z:getModData().SN_MiniHorde = true
-            end
-            spawned = spawned + 1
-        end
+    -- SP: use the real mini-horde system (staggered spawn + repath convergence).
+    -- SN.debugForceMiniHorde is defined in SiegeNight_MiniHorde.lua and creates
+    -- a proper job in activeMiniHordes with zombie tracking and 5-second repath.
+    if SN.debugForceMiniHorde then
+        local count, dir = SN.debugForceMiniHorde(player)
+        local dirName = (dir and SN.DIR_NAMES) and SN.DIR_NAMES[dir + 1] or "?"
+        player:Say("[SN] Mini-horde! " .. (count or 25) .. " from " .. dirName)
+    else
+        player:Say("[SN] ERROR: debugForceMiniHorde not loaded")
+        SN.log("ERROR: SN.debugForceMiniHorde is nil - MiniHorde.lua may not have loaded")
     end
-
-    getWorldSoundManager():addSound(player, math.floor(px), math.floor(py), 0, 200, 10)
-
-    SN.log("DEBUG: Mini-horde forced. " .. spawned .. " zombies from " .. SN.DIR_NAMES[dir + 1])
-    player:Say("[SN] Mini-horde! " .. spawned .. " from " .. SN.DIR_NAMES[dir + 1])
 end
 
 local function setSiegeToday()
