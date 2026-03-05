@@ -1,0 +1,4 @@
+v2.6.18
+- MP corpse sanity hardening: the downed >2s force-kill sanity tick now applies to ANY SiegeNight-tagged zombie (SN_SpecialType OR SN_Siege OR SN_MiniHorde), not just specials.
+- Mini-horde corpse sanity: during active mini-horde jobs, periodically force-kill any SN_MiniHorde zombie that stays downed/on-floor >2s without becoming dead.
+- Dedi safety: kept server-only Lua guarded from running on MP clients (prevents desync regression).

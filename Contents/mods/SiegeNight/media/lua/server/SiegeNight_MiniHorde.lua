@@ -40,6 +40,72 @@ local heatGrid = {}
 -- so cooldown checks can see it.
 local activeMiniHordes = {}
 
+-- ==========================================
+-- CORPSE SANITY (MP)
+-- ==========================================
+-- Some MP reports describe SiegeNight-spawned zombies getting "stuck" in a downed-but-not-dead state
+-- that results in dead-but-moving visuals and unlootable corpses. We apply a lightweight sanity tick
+-- to mini-horde zombies while a mini-horde job is active.
+
+local function worldAgeSecSafe()
+    local w = getWorld()
+    if w and w.getWorldAgeDays then
+        local ok, d = pcall(function() return w:getWorldAgeDays() end)
+        if ok and type(d) == "number" then return d * 86400 end
+    end
+    return 0
+end
+
+local function isZombieOnGround(z)
+    if not z then return false end
+    local ok, result = pcall(function()
+        if z.isOnFloor and z:isOnFloor() then return true end
+        if z.isKnockedDown and z:isKnockedDown() then return true end
+        if z.isFallOnFront and z:isFallOnFront() then return true end
+        if z.isFallOnBack and z:isFallOnBack() then return true end
+        return false
+    end)
+    return ok and result or false
+end
+
+local function forceKillZombie(z)
+    if not z then return end
+    if z.Kill then pcall(function() z:Kill(nil) end) end
+    if z.kill then pcall(function() z:kill(nil) end) end
+    if z.setHealth then pcall(function() z:setHealth(0) end) end
+end
+
+local function miniHordeCorpseSanityTick(zombieList)
+    if not zombieList then return end
+    local now = worldAgeSecSafe()
+    for i = #zombieList, 1, -1 do
+        local z = zombieList[i]
+        if not z then
+            table.remove(zombieList, i)
+        else
+            local md = z:getModData()
+            local isSNZombie = md and md.SN_MiniHorde
+            if isSNZombie then
+                local okDead, isDead = pcall(function() return z:isDead() end)
+                if okDead and isDead then
+                    md.SN_DownedAt = nil
+                else
+                    if isZombieOnGround(z) then
+                        if not md.SN_DownedAt then md.SN_DownedAt = now end
+                        if (now - md.SN_DownedAt) > 2 then
+                            SN.log("CorpseSanity: forceKill (mini) x=" .. tostring(z:getX()) .. " y=" .. tostring(z:getY()) .. " mini=" .. tostring(md.SN_MiniHorde))
+                            forceKillZombie(z)
+                            md.SN_DownedAt = now
+                        end
+                    else
+                        md.SN_DownedAt = nil
+                    end
+                end
+            end
+        end
+    end
+end
+
 -- Per-10-minute heat caps (prevents gunfire from chain-triggering mini-hordes constantly)
 local SN_MH_LastTenMinTick = -1
 local SN_MH_GunfireHeatThisTick = 0
@@ -261,6 +327,18 @@ local function onEveryTenMinutes()
     local threshold = tonumber(SN.getSandbox("MiniHorde_NoiseThreshold")) or 80
     if threshold < 1 then threshold = 1 end
 
+    -- Per-day cap: prevents servers from getting stuck in a mini-horde loop.
+    local today = math.floor(SN.getActualDay())
+    if siegeData.miniHordeDay ~= today then
+        siegeData.miniHordeDay = today
+        siegeData.miniHordeTriggersToday = 0
+    end
+    local maxPerDay = tonumber(SN.getSandbox("MiniHorde_MaxPerDay")) or 5
+    if maxPerDay < 0 then maxPerDay = 0 end
+    if maxPerDay > 0 and (siegeData.miniHordeTriggersToday or 0) >= maxPerDay then
+        return
+    end
+
     -- If a mini-horde is currently spawning, don't trigger another one.
     -- This prevents stacked jobs from looking like "nonstop" hordes even with a sane cooldown.
     if activeMiniHordes and #activeMiniHordes > 0 then
@@ -297,6 +375,7 @@ local function onEveryTenMinutes()
 
         if (not inGlobalGrace) and (not inGrace) and data.heat >= threshold then
             triggerMiniHorde(cellKey, data, playerList)
+            siegeData.miniHordeTriggersToday = (siegeData.miniHordeTriggersToday or 0) + 1
             data.heat = 0
             data.lastTrigger = now
             siegeData.miniHordeLastTrigger = now
@@ -419,6 +498,15 @@ local function onMiniHordeTick()
         job.tickCounter = job.tickCounter - 1
         job.repathTick = (job.repathTick or 0) + 1
 
+        -- Corpse sanity tick (about once per ~2 seconds at 30fps)
+        job.corpseSanityTick = (job.corpseSanityTick or 0) + 1
+        if job.corpseSanityTick >= 60 then
+            job.corpseSanityTick = 0
+            if job.zombieList and #job.zombieList > 0 then
+                miniHordeCorpseSanityTick(job.zombieList)
+            end
+        end
+
         -- ========== SPAWN PHASE (batch of 3 per tick) ==========
         if job.tickCounter <= 0 and job.remaining > 0 then
             job.tickCounter = job.spawnInterval
@@ -505,7 +593,7 @@ local function onMiniHordeTick()
             job.repathTick = 0
             local p = job.player
             if p and p:isAlive() then
-                -- Player alive check passed — getX/getY safe without pcall
+                -- Player alive check passed - getX/getY safe without pcall
                 local pX, pY = p:getX(), p:getY()
                 if type(pX) == "number" and type(pY) == "number" then
                     -- Step 1: Prune dead spawned zombies first
@@ -592,7 +680,7 @@ end
 -- MINI-HORDE KILL COUNTER
 -- ==========================================
 -- Any zombie killed near an active mini-horde player counts toward the
--- kill target. Player doesn't have to hunt down specific tagged zombies —
+-- kill target. Player doesn't have to hunt down specific tagged zombies -
 -- kill ANY 22 zombies (spawned or attracted roamers) and the attractor stops.
 
 local function onMiniHordeZombieDead(zombie)
@@ -609,7 +697,7 @@ local function onMiniHordeZombieDead(zombie)
                 if dist < 100 then
                     job.killCount = (job.killCount or 0) + 1
                     if job.killCount >= job.totalToSpawn then
-                        SN.log("Mini-horde kill target reached (" .. job.killCount .. "/" .. job.totalToSpawn .. ") — attractor stopped")
+                        SN.log("Mini-horde kill target reached (" .. job.killCount .. "/" .. job.totalToSpawn .. ") - attractor stopped")
                     end
                     return  -- credit to first matching job only
                 end

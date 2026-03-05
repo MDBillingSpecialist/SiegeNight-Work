@@ -23,6 +23,7 @@ $files = @(
     'lua\shared\SiegeNight_Shared.lua',
     'lua\shared\Translate\EN\Sandbox_EN.txt',
     'lua\server\SiegeNight_Server.lua',
+    'lua\server\SiegeNight_MiniHorde.lua',
     'lua\client\SiegeNight_Client.lua',
     'lua\client\SiegeNight_Debug.lua'
 )

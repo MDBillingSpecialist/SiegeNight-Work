@@ -40,8 +40,12 @@ if($parseErr){
   Fail "SiegeNight parse/exception detected in $($log.Name): $($parseErr.Line.Trim())"
 }
 
-# If mod prints a version marker, show it
-$verLine = Select-String -Path $log.FullName -Pattern "\[SiegeNight\].*\(v" -ErrorAction SilentlyContinue | Select-Object -First 1
+# If mod prints a version marker, show it.
+# Prefer the newest version marker if multiple are present in the log.
+$verLines = Select-String -Path $log.FullName -Pattern "\[SiegeNight\].*\(v" -ErrorAction SilentlyContinue
+$verLine = $null
+if($verLines){ $verLine = $verLines | Select-Object -Last 1 }
+
 if($verLine){
   Write-Host "OK: $($log.Name)" -ForegroundColor Green
   Write-Host "  $($verLine.Line.Trim())" -ForegroundColor Green
