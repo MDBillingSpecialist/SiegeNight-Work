@@ -36,6 +36,10 @@ if isClient and isClient() then return end
 local CELL_SIZE = 100
 local heatGrid = {}
 
+-- Active mini-horde spawn jobs (staggered spawning). Must be declared before onEveryTenMinutes
+-- so cooldown checks can see it.
+local activeMiniHordes = {}
+
 -- Per-10-minute heat caps (prevents gunfire from chain-triggering mini-hordes constantly)
 local SN_MH_LastTenMinTick = -1
 local SN_MH_GunfireHeatThisTick = 0
@@ -250,8 +254,17 @@ local function onEveryTenMinutes()
     -- SandboxVars can arrive as strings on some dedi setups; normalize to numbers.
     local cooldownMinutes = tonumber(SN.getSandbox("MiniHorde_CooldownMinutes"))
     if not cooldownMinutes or cooldownMinutes <= 0 then cooldownMinutes = 30 end
+    if cooldownMinutes < 1 then cooldownMinutes = 1 end
     local cooldownHours = cooldownMinutes / 60
+
     local threshold = tonumber(SN.getSandbox("MiniHorde_NoiseThreshold")) or 80
+    if threshold < 1 then threshold = 1 end
+
+    -- If a mini-horde is currently spawning, don't trigger another one.
+    -- This prevents stacked jobs from looking like "nonstop" hordes even with a sane cooldown.
+    if activeMiniHordes and #activeMiniHordes > 0 then
+        return
+    end
 
     -- GLOBAL cooldown (MP): prevent large servers from triggering mini-hordes every tick
     -- just because players are spread across many heat cells.
@@ -288,8 +301,6 @@ end
 -- Repath interval: same as siege (150 ticks = 5 seconds).
 -- Continuously re-drives all tracked mini-horde zombies toward the player.
 local MH_REPATH_INTERVAL = 150
-
-local activeMiniHordes = {}
 
 triggerMiniHorde = function(cellKey, heatData, playerList)
     local parts = {}
