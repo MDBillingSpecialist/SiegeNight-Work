@@ -318,9 +318,10 @@ end
 -- MINI-HORDE SPAWNER
 -- ==========================================
 
--- Repath interval: same as siege (150 ticks = 5 seconds).
--- Continuously re-drives all tracked mini-horde zombies toward the player.
-local MH_REPATH_INTERVAL = 150
+-- Repath interval: 30 ticks = 1 second (more aggressive than siege's 150).
+-- Mini-hordes use per-zombie targeting only (no global attractor sound),
+-- so we repath frequently to keep them converging without pulling nearby roamers.
+local MH_REPATH_INTERVAL = 30
 
 triggerMiniHorde = function(cellKey, heatData, playerList)
     local parts = {}
@@ -460,15 +461,13 @@ local function onMiniHordeTick()
                                 if ok and zombies and zombies:size() > 0 then
                                     local zombie = zombies:get(0)
                                     local p = job.player
-                                    -- Single pcall for all targeting + attractor sound (reduces overhead vs 5 separate pcalls)
+                                    -- Single pcall for all targeting (no attractor sound — only tagged zombies move)
                                     pcall(function()
                                         zombie:pathToSound(px, py, 0)
                                         zombie:setTarget(p)
                                         zombie:setAttackedBy(p)
                                         zombie:spottedNew(p, true)
                                         zombie:addAggro(p, 1)
-                                        -- Attractor sound: game-world noise event that triggers zombie hearing AI
-                                        getWorldSoundManager():addSound(p, math.floor(px), math.floor(py), 0, 200, 200)
                                     end)
                                     zombie:getModData().SN_MiniHorde = true
                                     table.insert(job.zombieList, zombie)
@@ -498,10 +497,6 @@ local function onMiniHordeTick()
                 local okP, pX = pcall(function() return p:getX() end)
                 local okPY, pY = pcall(function() return p:getY() end)
                 if okP and okPY and type(pX) == "number" and type(pY) == "number" then
-                    -- Attractor sound pulse: game-world noise to keep zombies converging
-                    pcall(function()
-                        getWorldSoundManager():addSound(p, math.floor(pX), math.floor(pY), 0, 200, 200)
-                    end)
                     -- Prune dead zombies, repath living ones toward the player.
                     -- Single pcall per zombie (reduces overhead from 6 pcalls to 2).
                     local alive = {}
