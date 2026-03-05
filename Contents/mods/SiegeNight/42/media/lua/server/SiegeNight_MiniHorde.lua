@@ -414,7 +414,7 @@ local function onMiniHordeTick()
         job.tickCounter = job.tickCounter - 1
         job.repathTick = (job.repathTick or 0) + 1
 
-        -- ========== SPAWN PHASE ==========
+        -- ========== SPAWN PHASE (batch of 3 per tick) ==========
         if job.tickCounter <= 0 and job.remaining > 0 then
             job.tickCounter = job.spawnInterval
 
@@ -435,49 +435,46 @@ local function onMiniHordeTick()
                     job.remaining = 0
                 else
                     local spawnDist = SN.getSandbox("SpawnDistance")
+                    local batchSize = math.min(3, job.remaining)
 
-                    for attempt = 0, 30 do
-                        local dir = job.direction
-                        local baseX = px + SN.DIR_X[dir + 1] * spawnDist
-                        local baseY = py + SN.DIR_Y[dir + 1] * spawnDist
-                        local spread = ZombRand(41) - 20
-                        local perpX = -SN.DIR_Y[dir + 1]
-                        local perpY = SN.DIR_X[dir + 1]
-                        local fx = math.floor(baseX + perpX * spread)
-                        local fy = math.floor(baseY + perpY * spread)
+                    for b = 1, batchSize do
+                        if job.remaining <= 0 then break end
+                        local spawned = false
+                        for attempt = 0, 30 do
+                            local dir = job.direction
+                            local baseX = px + SN.DIR_X[dir + 1] * spawnDist
+                            local baseY = py + SN.DIR_Y[dir + 1] * spawnDist
+                            local spread = ZombRand(41) - 20
+                            local perpX = -SN.DIR_Y[dir + 1]
+                            local perpY = SN.DIR_X[dir + 1]
+                            local fx = math.floor(baseX + perpX * spread)
+                            local fy = math.floor(baseY + perpY * spread)
 
-                        local square = getWorld():getCell():getGridSquare(fx, fy, 0)
-                        if square and square:isFree(false) and square:isOutside() and not isInsidePlayerArea(square) then
-                            local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
-                            -- pcall-protect spawn so a Java error doesn't crash the tick loop.
-                            local ok, zombies = pcall(addZombiesInOutfit, fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
-                            if not ok then
-                                SN.log("WARNING: mini-horde addZombiesInOutfit failed: " .. tostring(zombies))
-                            end
-                            if ok and zombies and zombies:size() > 0 then
-                                local zombie = zombies:get(0)
-                                local p = job.player
-                                local okP, pX = pcall(function() return p and p:getX() end)
-                                if okP and type(pX) == "number" then
-                                    -- Full convergence chain (same as siege spawn):
-                                    -- pathToSound gives initial movement, targeting makes them hunt.
-                                    pcall(function() zombie:pathToSound(pX, p:getY(), 0) end)
-                                    pcall(function() zombie:setTarget(p) end)
-                                    pcall(function() zombie:setAttackedBy(p) end)
-                                    pcall(function() zombie:spottedNew(p, true) end)
-                                    pcall(function() zombie:addAggro(p, 1) end)
-                                    -- NO attractor sound here: mini-hordes only converge spawned
-                                    -- zombies, they do NOT pull in all nearby zombies like sieges do.
-                                else
-                                    job.remaining = 0
+                            local square = getWorld():getCell():getGridSquare(fx, fy, 0)
+                            if square and square:isFree(false) and square:isOutside() and not isInsidePlayerArea(square) then
+                                local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
+                                local ok, zombies = pcall(addZombiesInOutfit, fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
+                                if not ok then
+                                    SN.log("WARNING: mini-horde addZombiesInOutfit failed: " .. tostring(zombies))
                                 end
-                                zombie:getModData().SN_MiniHorde = true
-                                -- Track zombie for repath convergence
-                                table.insert(job.zombieList, zombie)
+                                if ok and zombies and zombies:size() > 0 then
+                                    local zombie = zombies:get(0)
+                                    local p = job.player
+                                    -- Single pcall for all targeting (reduces overhead vs 5 separate pcalls)
+                                    pcall(function()
+                                        zombie:pathToSound(px, py, 0)
+                                        zombie:setTarget(p)
+                                        zombie:setAttackedBy(p)
+                                        zombie:spottedNew(p, true)
+                                        zombie:addAggro(p, 1)
+                                    end)
+                                    zombie:getModData().SN_MiniHorde = true
+                                    table.insert(job.zombieList, zombie)
+                                end
+                                job.remaining = job.remaining - 1
+                                spawned = true
+                                break
                             end
-
-                            job.remaining = job.remaining - 1
-                            break
                         end
                     end
                 end
@@ -499,23 +496,23 @@ local function onMiniHordeTick()
                 local okP, pX = pcall(function() return p:getX() end)
                 local okPY, pY = pcall(function() return p:getY() end)
                 if okP and okPY and type(pX) == "number" and type(pY) == "number" then
-                    -- Prune dead zombies, repath living ones toward the player
+                    -- Prune dead zombies, repath living ones toward the player.
+                    -- Single pcall per zombie (reduces overhead from 6 pcalls to 2).
                     local alive = {}
                     for _, zombie in ipairs(job.zombieList) do
                         local okD, dead = pcall(function() return zombie:isDead() end)
                         if okD and not dead then
-                            pcall(function() zombie:pathToSound(pX, pY, 0) end)
-                            pcall(function() zombie:setTarget(p) end)
-                            pcall(function() zombie:setAttackedBy(p) end)
-                            pcall(function() zombie:spottedNew(p, true) end)
-                            pcall(function() zombie:addAggro(p, 1) end)
+                            pcall(function()
+                                zombie:pathToSound(pX, pY, 0)
+                                zombie:setTarget(p)
+                                zombie:setAttackedBy(p)
+                                zombie:spottedNew(p, true)
+                                zombie:addAggro(p, 1)
+                            end)
                             table.insert(alive, zombie)
                         end
                     end
                     job.zombieList = alive
-                    -- NO attractor sound: only the tracked mini-horde zombies converge,
-                    -- not every zombie in the area. Siege uses addSound for full-area pull;
-                    -- mini-hordes rely solely on per-zombie pathToSound + targeting.
                 end
             end
         end
