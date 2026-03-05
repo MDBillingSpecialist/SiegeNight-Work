@@ -93,6 +93,7 @@ local function miniHordeCorpseSanityTick(zombieList)
                     if isZombieOnGround(z) then
                         if not md.SN_DownedAt then md.SN_DownedAt = now end
                         if (now - md.SN_DownedAt) > 2 then
+                            SN.log("CorpseSanity: forceKill (mini) x=" .. tostring(z:getX()) .. " y=" .. tostring(z:getY()) .. " mini=" .. tostring(md.SN_MiniHorde))
                             forceKillZombie(z)
                             md.SN_DownedAt = now
                         end

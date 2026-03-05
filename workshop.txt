@@ -1,4 +1,4 @@
-version=2.6.18
+version=2.6.19
 id=3669589584
 title=Siege Night
 description=[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-title.png[/img]

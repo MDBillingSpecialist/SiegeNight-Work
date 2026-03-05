@@ -5,7 +5,7 @@
     "contentfolder"     "C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents"
     "previewfile"       "C:\Users\theth\Zomboid\Workshop\SiegeNight\preview.png"
     "descriptionfile"   "C:\Users\theth\Zomboid\Workshop\SiegeNight\description.txt"
-    "changenote"        "v2.6.18\n- MP corpse sanity hardening: the downed >2s force-kill sanity tick now applies to ANY SiegeNight-tagged zombie (SN_SpecialType OR SN_Siege OR SN_MiniHorde), not just specials.\n- Mini-horde corpse sanity: during active mini-horde jobs, periodically force-kill any SN_MiniHorde zombie that stays downed/on-floor >2s without becoming dead.\n- Dedi safety: kept server-only Lua guarded from running on MP clients (prevents desync regression)."
+    "changenote"        "v2.6.19\n- Added log lines when corpse sanity force-kills a zombie (helps isolate MP downed/unlootable cases).\n- MP corpse sanity hardening: the downed >2s force-kill sanity tick applies to ANY SiegeNight-tagged zombie (SN_SpecialType OR SN_Siege OR SN_MiniHorde).\n- Mini-horde corpse sanity: during active mini-horde jobs, periodically force-kill any SN_MiniHorde zombie that stays downed/on-floor >2s without becoming dead."
 }
 
 
