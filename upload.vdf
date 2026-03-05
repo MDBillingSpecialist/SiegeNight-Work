@@ -5,7 +5,7 @@
     "contentfolder"     "C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents"
     "previewfile"       "C:\Users\theth\Zomboid\Workshop\SiegeNight\preview.png"
     "descriptionfile"   "C:\Users\theth\Zomboid\Workshop\SiegeNight\description.txt"
-    "changenote"        "v2.6.16\n- Per-group independent sieges: player clusters get separate waves, direction, and kill tracking.\n- Safehouse anchor mode: zombies can target your claimed safehouse instead of player position.\n- Mini-horde rework: attractor tracking system, kill counter, batch spawning, daily cap.\n- 4 new sandbox options (Max Active Zombies, Spawn Anchor Mode, Safehouse Search Radius, Safehouse Merge Distance).\n- Performance: consolidated error handling, in-place zombie list compaction, removed dead code.\n- Fixed crash on siege start/stop (Kahlua engine compatibility).\n- Fixed debug HUD crashes in idle state."
+    "changenote"        "v2.6.18\n- MP corpse sanity hardening: the downed >2s force-kill sanity tick now applies to ANY SiegeNight-tagged zombie (SN_SpecialType OR SN_Siege OR SN_MiniHorde), not just specials.\n- Mini-horde corpse sanity: during active mini-horde jobs, periodically force-kill any SN_MiniHorde zombie that stays downed/on-floor >2s without becoming dead.\n- Dedi safety: kept server-only Lua guarded from running on MP clients (prevents desync regression)."
 }
 
 

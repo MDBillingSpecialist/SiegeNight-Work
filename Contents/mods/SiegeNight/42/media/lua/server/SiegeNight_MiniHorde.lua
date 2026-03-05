@@ -40,6 +40,71 @@ local heatGrid = {}
 -- so cooldown checks can see it.
 local activeMiniHordes = {}
 
+-- ==========================================
+-- CORPSE SANITY (MP)
+-- ==========================================
+-- Some MP reports describe SiegeNight-spawned zombies getting "stuck" in a downed-but-not-dead state
+-- that results in dead-but-moving visuals and unlootable corpses. We apply a lightweight sanity tick
+-- to mini-horde zombies while a mini-horde job is active.
+
+local function worldAgeSecSafe()
+    local w = getWorld()
+    if w and w.getWorldAgeDays then
+        local ok, d = pcall(function() return w:getWorldAgeDays() end)
+        if ok and type(d) == "number" then return d * 86400 end
+    end
+    return 0
+end
+
+local function isZombieOnGround(z)
+    if not z then return false end
+    local ok, result = pcall(function()
+        if z.isOnFloor and z:isOnFloor() then return true end
+        if z.isKnockedDown and z:isKnockedDown() then return true end
+        if z.isFallOnFront and z:isFallOnFront() then return true end
+        if z.isFallOnBack and z:isFallOnBack() then return true end
+        return false
+    end)
+    return ok and result or false
+end
+
+local function forceKillZombie(z)
+    if not z then return end
+    if z.Kill then pcall(function() z:Kill(nil) end) end
+    if z.kill then pcall(function() z:kill(nil) end) end
+    if z.setHealth then pcall(function() z:setHealth(0) end) end
+end
+
+local function miniHordeCorpseSanityTick(zombieList)
+    if not zombieList then return end
+    local now = worldAgeSecSafe()
+    for i = #zombieList, 1, -1 do
+        local z = zombieList[i]
+        if not z then
+            table.remove(zombieList, i)
+        else
+            local md = z:getModData()
+            local isSNZombie = md and md.SN_MiniHorde
+            if isSNZombie then
+                local okDead, isDead = pcall(function() return z:isDead() end)
+                if okDead and isDead then
+                    md.SN_DownedAt = nil
+                else
+                    if isZombieOnGround(z) then
+                        if not md.SN_DownedAt then md.SN_DownedAt = now end
+                        if (now - md.SN_DownedAt) > 2 then
+                            forceKillZombie(z)
+                            md.SN_DownedAt = now
+                        end
+                    else
+                        md.SN_DownedAt = nil
+                    end
+                end
+            end
+        end
+    end
+end
+
 -- Per-10-minute heat caps (prevents gunfire from chain-triggering mini-hordes constantly)
 local SN_MH_LastTenMinTick = -1
 local SN_MH_GunfireHeatThisTick = 0
@@ -431,6 +496,15 @@ local function onMiniHordeTick()
         local job = activeMiniHordes[i]
         job.tickCounter = job.tickCounter - 1
         job.repathTick = (job.repathTick or 0) + 1
+
+        -- Corpse sanity tick (about once per ~2 seconds at 30fps)
+        job.corpseSanityTick = (job.corpseSanityTick or 0) + 1
+        if job.corpseSanityTick >= 60 then
+            job.corpseSanityTick = 0
+            if job.zombieList and #job.zombieList > 0 then
+                miniHordeCorpseSanityTick(job.zombieList)
+            end
+        end
 
         -- ========== SPAWN PHASE (batch of 3 per tick) ==========
         if job.tickCounter <= 0 and job.remaining > 0 then

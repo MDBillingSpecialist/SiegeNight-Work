@@ -230,7 +230,8 @@ local function specialCorpseSanityTick(zombieList)
             table.remove(zombieList, i)
         else
             local md = z:getModData()
-            if md and md.SN_SpecialType then
+            local isSNZombie = md and (md.SN_SpecialType or md.SN_Siege or md.SN_MiniHorde)
+            if isSNZombie then
                 local okDead, isDead = pcall(function() return z:isDead() end)
                 if okDead and isDead then
                     md.SN_DownedAt = nil

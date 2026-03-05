@@ -4,7 +4,13 @@
 - SteamCMD upload still requires interactive login (publishing account). Previous error: **Access Denied**.
 
 ## Current staged version
-- **2.6.17** staged in `C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents`
+- **2.6.18** staged in `C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents`
+
+## New mitigation staged (not MP-verified yet)
+- Corpse sanity expanded beyond specials:
+  - Siege-side sanity tick now applies to any zombie tagged with `SN_SpecialType` **or** `SN_Siege` **or** `SN_MiniHorde`.
+- Mini-horde sanity tick added:
+  - While a mini-horde job is active, periodically force-kill any tagged `SN_MiniHorde` zombie that stays knocked-down/on-floor >2s without becoming dead.
 
 ## Priority validation (MP)
 1) Repro the new MP report:
@@ -12,7 +18,9 @@
    - corpse cannot be looted
    - confirm whether it affects **all** mod-spawned zombies or only **specials** (latest report says **all horde zombies**)
    - capture: client console.txt + server console.txt around the kill moment
-   - note whether the zombie was: siege / mini-horde / bonus (check `md.SN_Siege` / `md.SN_MiniHorde` if we add temporary logging)
+   - note whether the zombie was: siege / mini-horde / bonus
+
+   **Current mitigation in staged build:** corpse sanity tick now applies to **all SiegeNight-tagged zombies** (SN_Siege/SN_MiniHorde/SN_SpecialType) and mini-hordes also have a periodic sanity tick during active jobs.
 
 2) Dedicated MP smoke test (3 players preferred):
    - mini-horde spawns visible to all
