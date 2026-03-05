@@ -499,15 +499,24 @@ local function onMiniHordeTick()
                 local okP, pX = pcall(function() return p:getX() end)
                 local okPY, pY = pcall(function() return p:getY() end)
                 if okP and okPY and type(pX) == "number" and type(pY) == "number" then
-                    -- Attractor pulse: smaller radius than siege (80 vs 200) to limit roamer pull
-                    pcall(function()
-                        getWorldSoundManager():addSound(p, math.floor(pX), math.floor(pY), 0, 80, 80)
-                    end)
-                    -- Prune dead zombies, repath living ones toward the player.
+                    -- Step 1: Prune dead spawned zombies first
                     local alive = {}
                     for _, zombie in ipairs(job.zombieList) do
                         local okD, dead = pcall(function() return zombie:isDead() end)
                         if okD and not dead then
+                            table.insert(alive, zombie)
+                        end
+                    end
+                    job.zombieList = alive
+
+                    -- Step 2: Only attract + repath if spawned zombies still alive.
+                    -- Once all original spawned zombies are killed, stop attracting
+                    -- even if roamers were pulled in. No more sound = roamers wander off.
+                    if #alive > 0 then
+                        pcall(function()
+                            getWorldSoundManager():addSound(p, math.floor(pX), math.floor(pY), 0, 80, 80)
+                        end)
+                        for _, zombie in ipairs(alive) do
                             pcall(function()
                                 zombie:pathToSound(pX, pY, 0)
                                 zombie:setTarget(p)
@@ -515,10 +524,8 @@ local function onMiniHordeTick()
                                 zombie:spottedNew(p, true)
                                 zombie:addAggro(p, 1)
                             end)
-                            table.insert(alive, zombie)
                         end
                     end
-                    job.zombieList = alive
                 end
             end
         end
