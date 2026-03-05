@@ -11,14 +11,14 @@ Built for fortress defense. Solo or multiplayer.
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-features.png[/img]
 
 [list]
-[*] [b]Wave Cycles[/b] -- each siege runs structured phases: WAVE (dense assault bursts), TRICKLE (stragglers that keep the pressure on), and BREAK (a quiet window to patch up and reinforce). 3 to 7 waves per night, escalating as midnight approaches. The last push always hits hardest.
-[*] [b]Directional Attacks[/b] -- every siege picks one of 8 compass directions (N, NE, E, SE, S, SW, W, NW) and all zombies come from that angle for the entire night. You can't fortify everything. Different directions across siege nights force real decisions about where your walls go.
-[*] [b]Siege Scaling[/b] -- each siege is harder than the last. Zombie count scales with how many sieges you've survived and how many players are online. Early game: 3 waves, ~75-150 zombies. Late game: 6-7 waves, up to 1,500. More players draw bigger hordes.
-[*] [b]Per-Group Independent Sieges[/b] -- in multiplayer, groups in different areas each get their own siege with separate waves, direction, kill tracking, and clear condition. Stay close and fight together, or spread out and handle your own.
-[*] [b]Safehouse Anchor Mode[/b] -- optional mode where zombies target your claimed safehouse instead of your player position. They attack your base even if you leave. Supports multiple nearby safehouses merged into one target zone.
+[*] [b]Wave Cycles[/b] -- WAVE (dense assault), TRICKLE (stragglers), and BREAK (patch up and reinforce). 3 to 7 waves per night, escalating as midnight approaches.
+[*] [b]Directional Attacks[/b] -- every siege picks one of 8 compass directions and all zombies come from that angle for the entire night. Different directions each siege force real decisions about where your walls go.
+[*] [b]Siege Scaling[/b] -- zombie count scales with sieges survived and players online. Early game: 3 waves, ~75-150 zombies. Late game: 6-7 waves, up to 1,500.
+[*] [b]Per-Group Independent Sieges[/b] -- in MP, groups in different areas each get their own siege with separate waves, direction, kill tracking, and clear condition.
+[*] [b]Safehouse Anchor Mode[/b] -- zombies target your claimed safehouse instead of your player position. They attack your base even if you leave.
 [*] [b]Dawn Survival[/b] -- make it to sunrise and your character announces the kill count. The siege panel tracks everything.
-[*] [b]30+ Sandbox Options[/b] -- tune siege frequency (fixed or randomized range), first siege day, base zombie count, scaling multiplier, max cap, spawn distance, spawn anchor mode, special zombie rates, mini-horde thresholds, and more. Spread across 3 sandbox pages.
-[*] [b]Kill Tracking[/b] -- a Siege Night tab in your character info window (press H) shows current wave and phase, kills this siege (siege spawns and attracted zombies tracked separately), lifetime totals, and full siege history for the last 20 nights.
+[*] [b]30+ Sandbox Options[/b] -- tune siege frequency, zombie count, scaling, spawn distance, anchor mode, special zombie rates, mini-horde thresholds, and more. Spread across 3 sandbox pages.
+[*] [b]Kill Tracking[/b] -- a Siege Night tab in your character info (press H) shows wave/phase, kills this siege, lifetime totals, and full siege history for the last 20 nights.
 [/list]
 
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
@@ -26,30 +26,26 @@ Built for fortress defense. Solo or multiplayer.
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-specials.png[/img]
 
 [list]
-[*] [b]Sprinters[/b] -- fast. Blend in with the horde until they're already on you. Start appearing after midnight from week 3 onward.
-[*] [b]Breakers[/b] -- construction gear. Built to smash through your barricades and walls. Higher spawn rate than sprinters -- expect them.
-[*] [b]Tanks[/b] -- military outfits, 5x normal health. Two per siege by default. They take a beating and keep coming.
+[*] [b]Sprinters[/b] -- fast. Blend in with the horde until they're already on you.
+[*] [b]Breakers[/b] -- construction gear. Built to smash through your barricades and walls.
+[*] [b]Tanks[/b] -- military outfits, 5x normal health. Two per siege by default.
 [/list]
 
-Specials start spawning after midnight when the siege is at its peak. All rates, start week, and tank health can be tuned or disabled in sandbox options.
+Specials start spawning after midnight when the siege is at its peak. All rates and tank health can be tuned or disabled in sandbox options.
 
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
 
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-minihordes.png[/img]
 
-Between siege nights, your activity generates [b]heat[/b]. Running generators, firing guns, hoarding loot, driving vehicles -- it all attracts attention. The biggest draws: generators (+15), gunfire (+10), driving (+8), heavy construction (+5). Heat builds around your location and decays slowly when you go quiet.
+Between siege nights, your activity generates [b]heat[/b]. Generators (+15), gunfire (+10), driving (+8), heavy construction (+5). Heat builds around your location and decays slowly when you go quiet.
 
 Push your luck too far and you'll hear: [i]"Something's attracting them from the south..."[/i]
 
-Mini-hordes come from the direction of your heat source. When they spawn, an attractor system pulls them toward your position so they actually track you down instead of wandering. Kill enough of them and the attractor shuts off -- the rest scatter and you can escape or finish them off. There's a cooldown between triggers and a daily cap so you won't get chain-hit.
-
-The heat system scales with player count in multiplayer, so bigger groups draw bigger problems.
+Mini-hordes come from the direction of your heat source. An attractor system pulls them toward you. Kill enough and the attractor shuts off -- the rest scatter. Cooldown between triggers and a daily cap so you won't get chain-hit.
 
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
 
 [h1]Commands[/h1]
-
-Type these in chat to control sieges:
 
 [list]
 [*] [b]!siege start[/b] -- Start a siege immediately (admin only in MP)
@@ -58,24 +54,10 @@ Type these in chat to control sieges:
 [*] [b]!siege next[/b] -- Show when the next siege is scheduled
 [*] [b]!siege vote[/b] -- Start a vote to trigger a siege (any player)
 [*] [b]!siege yes[/b] -- Vote yes on an active vote
-[*] [b]!siege optout[/b] -- Opt out of sieges (no zombies will spawn near you)
-[*] [b]!siege optin[/b] -- Opt back in
+[*] [b]!siege optout / optin[/b] -- Opt out/in of sieges
 [/list]
 
-The vote system needs a majority of online players. 60 second window. Opted-out players don't count toward the majority -- perfect for when part of your group wants to sit one out.
-
-[b]Singleplayer Controls[/b]
-SP doesn't have a chat window, so use the built-in debug menu instead:
-[list]
-[*] [b]Numpad 0[/b] -- Enable debug mode (must do this first)
-[*] [b]Numpad 2[/b] -- Cycle states (Idle > Warning > Active > Dawn)
-[*] [b]Numpad 7[/b] -- Set next siege to today
-[*] [b]Numpad 9[/b] -- Force-start a max siege immediately (any time of day)
-[*] [b]Numpad 6[/b] -- Toggle debug HUD overlay with all siege stats
-[*] [b]Numpad 1[/b] -- Dump full status to console
-[*] [b]Numpad 3[/b] -- Spawn 10 test zombies
-[*] [b]Numpad 8[/b] -- Fast-forward 1 hour
-[/list]
+Vote system needs majority of online players. 60 second window. SP uses Numpad debug keys (Numpad 0 to enable, then 2/7/9/6 for controls).
 
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
 
@@ -93,54 +75,19 @@ SP doesn't have a chat window, so use the built-in debug menu instead:
 [b]v3.0 -- Custom Special Zombies[/b]
 [list]
 [*] New zombie types with unique behaviors
-[*] Difficulty scaling over days survived
 [*] Boss zombies on milestone nights
 [/list]
 
 [b]Beyond[/b]
 [list]
 [*] Weather effects during sieges (fog, atmosphere)
-[*] Siege preparation phase
 [*] Custom siege schedules (blood moon cycles)
 [*] Loot rewards for surviving sieges
-[*] More community-requested features
 [/list]
 
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
 
-[h1]Changelog[/h1]
-
-[b]v2.6.16 (Current)[/b]
-[list]
-[*] Per-group independent sieges -- player clusters get separate waves, direction, and kill tracking
-[*] Safehouse anchor mode -- zombies can target your claimed safehouse instead of player position
-[*] Mini-horde rework -- attractor tracking system, kill counter, batch spawning, daily cap
-[*] 4 new sandbox options (Max Active Zombies, Spawn Anchor Mode, Safehouse Search Radius, Safehouse Merge Distance)
-[*] Performance: consolidated error handling, in-place zombie list compaction, removed dead code
-[*] Fixed crash on siege start/stop (Kahlua engine compatibility)
-[*] Fixed debug HUD crashes in idle state
-[/list]
-
-[b]v2.5.0 - v2.5.44[/b]
-[list]
-[*] Wave system, directional attacks, special zombies (sprinters, breakers, tanks)
-[*] Mini-horde heat system with noise-based triggers
-[*] Kill tracking + siege history panel (press H)
-[*] Chat commands (!siege start/stop/status/next/vote) + vote system + opt-out
-[*] Full sandbox configuration across 3 pages
-[*] 40+ bug fixes across patch versions
-[/list]
-
-[b]v2.4.0[/b]
-[list]
-[*] Initial public release
-[/list]
-
-Full patch history available in the Discussions tab.
-
-[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
-
-Built for [b]Build 42.14 (latest unstable)[/b]. Works in singleplayer and multiplayer.
+Built for [b]Build 42.14[/b]. Works in singleplayer and multiplayer.
 
 Found a bug? Check the Discussions tab or drop a comment.
 Have an idea? Post it in the Suggestions discussion.
