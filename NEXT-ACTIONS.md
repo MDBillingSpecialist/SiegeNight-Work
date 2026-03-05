@@ -4,7 +4,7 @@
 - SteamCMD upload still requires interactive login (publishing account). Previous error: **Access Denied**.
 
 ## Current staged version
-- **2.5.45** staged in `C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents`
+- **2.6.17** staged in `C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents`
 
 ## Priority validation (MP)
 1) Repro the new MP report:
@@ -26,6 +26,10 @@
 ## Notes on attempted fix (2.5.43)
 - Do not set zombie health client-side during `SyncSpecial`.
 - Ensure all mod spawns pass `healthMult = 1.0` into `addZombiesInOutfit`; specials get health via server-side stat edits only.
+
+## Notes on attempted fix (2.5.45)
+- Mini-hordes: fixed a scoping bug where the "don’t trigger while one is spawning" guard could reference a nil global, allowing stacked spawn jobs (looks like nonstop hordes).
+- Mini-hordes: clamp cooldown/threshold defensively (handles string/zero values on some dedi configs).
 
 ## When ready to ship
 - Run SteamCMD upload with creds:
