@@ -1,7 +1,9 @@
 # SiegeNight stabilization - next actions
 
 ## Upload blocker
-- SteamCMD upload still requires interactive login (publishing account). Previous error: **Access Denied**.
+- SteamCMD upload still requires interactive login (publishing account).
+  - Error: **Access Denied**
+  - Latest attempt (2026-03-05 14:31) still failed with Access Denied (see `C:\steamcmd\logs\workshop_log.txt`).
 
 ## Current staged version
 - **2.6.19** staged in `C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents`

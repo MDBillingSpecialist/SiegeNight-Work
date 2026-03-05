@@ -5,6 +5,7 @@ param(
 
 # Replaces a few common Unicode punctuation chars with ASCII equivalents.
 # Intended for PZ Lua / config files where non-ASCII can break parsing.
+# NOTE: Avoid using this on SteamCMD Workshop KeyValues .vdf files; if a tool has previously serialized newlines/escapes, rewriting may break KeyValues parsing.
 
 if (-not (Test-Path -LiteralPath $InPath)) {
   throw "Input file not found: $InPath"
