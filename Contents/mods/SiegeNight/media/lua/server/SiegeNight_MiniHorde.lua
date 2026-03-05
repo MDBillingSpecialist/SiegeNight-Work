@@ -248,7 +248,8 @@ local function onEveryTenMinutes()
     local now = gt:getWorldAgeHours()
 
     -- SandboxVars can arrive as strings on some dedi setups; normalize to numbers.
-    local cooldownMinutes = tonumber(SN.getSandbox("MiniHorde_CooldownMinutes")) or 30
+    local cooldownMinutes = tonumber(SN.getSandbox("MiniHorde_CooldownMinutes"))
+    if not cooldownMinutes or cooldownMinutes <= 0 then cooldownMinutes = 30 end
     local cooldownHours = cooldownMinutes / 60
     local threshold = tonumber(SN.getSandbox("MiniHorde_NoiseThreshold")) or 80
 
@@ -283,6 +284,10 @@ end
 -- ==========================================
 -- MINI-HORDE SPAWNER
 -- ==========================================
+
+-- Repath interval: same as siege (150 ticks = 5 seconds).
+-- Continuously re-drives all tracked mini-horde zombies toward the player.
+local MH_REPATH_INTERVAL = 150
 
 local activeMiniHordes = {}
 
@@ -355,7 +360,7 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
     -- Fire API callback
     SN.fireCallback("onMiniHorde", count, dir, cellKey)
 
-    -- Create staggered spawn job
+    -- Create staggered spawn job with zombie tracking for repath convergence
     table.insert(activeMiniHordes, {
         player = nearestPlayer,
         remaining = count,
@@ -364,6 +369,9 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
         direction = dir,
         -- Notify flag: announce to player on first spawn
         announced = false,
+        -- Convergence tracking (matches siege repath system)
+        zombieList = {},    -- tracked zombie refs for repath
+        repathTick = 0,     -- counts up to MH_REPATH_INTERVAL
     })
 end
 
@@ -373,14 +381,15 @@ local function onMiniHordeTick()
     for i = #activeMiniHordes, 1, -1 do
         local job = activeMiniHordes[i]
         job.tickCounter = job.tickCounter - 1
+        job.repathTick = (job.repathTick or 0) + 1
 
-        if job.tickCounter <= 0 then
+        -- ========== SPAWN PHASE ==========
+        if job.tickCounter <= 0 and job.remaining > 0 then
             job.tickCounter = job.spawnInterval
 
-            if job.player and job.player:isAlive() and job.remaining > 0 then
+            if job.player and job.player:isAlive() then
                 -- SP: announce via Say() on first spawn
                 if not job.announced then
-                    -- In SP, sendServerCommand does nothing, so use Say() directly
                     local isSP = not isServer() and not isClient()
                     if isSP then
                         local dirName = SN.getDirName(job.direction)
@@ -409,7 +418,6 @@ local function onMiniHordeTick()
                         local square = getWorld():getCell():getGridSquare(fx, fy, 0)
                         if square and square:isFree(false) and square:isOutside() and not isInsidePlayerArea(square) then
                             local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
-                            -- MP: keep base spawn health at 1.0 (avoid client/server health desync).
                             -- pcall-protect spawn so a Java error doesn't crash the tick loop.
                             local ok, zombies = pcall(addZombiesInOutfit, fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
                             if not ok then
@@ -417,43 +425,76 @@ local function onMiniHordeTick()
                             end
                             if ok and zombies and zombies:size() > 0 then
                                 local zombie = zombies:get(0)
-                                -- IMPORTANT: do NOT dress zombies server-side.
-                                -- addZombiesInOutfit already applies clothing and server-side dressInNamedOutfit
-                                -- can override client visuals / cause naked regressions in MP.
-                                -- MP safety: player/zombie objects can be stale between ticks
                                 local p = job.player
                                 local okP, pX = pcall(function() return p and p:getX() end)
                                 if okP and type(pX) == "number" then
-                                    -- pathToSound gives the zombie an initial movement vector toward the player.
-                                    -- Without this, zombies spawned at range just stand still.
-                                    -- NOTE: pathToSound is safe (coordinate-based), unlike pathToCharacter
-                                    -- which can throw InvocationTargetException on some dedicated servers.
+                                    -- Full convergence chain (same as siege spawn):
+                                    -- pathToSound gives initial movement, targeting makes them hunt.
                                     pcall(function() zombie:pathToSound(pX, p:getY(), 0) end)
                                     pcall(function() zombie:setTarget(p) end)
                                     pcall(function() zombie:setAttackedBy(p) end)
                                     pcall(function() zombie:spottedNew(p, true) end)
                                     pcall(function() zombie:addAggro(p, 1) end)
+                                    -- Attractor sound: pulls nearby zombies toward player (convergence)
+                                    pcall(function() getWorldSoundManager():addSound(p, math.floor(pX), math.floor(p:getY()), 0, 200, 200) end)
                                 else
-                                    -- Player disappeared/disconnected; stop this mini-horde job
                                     job.remaining = 0
                                 end
                                 zombie:getModData().SN_MiniHorde = true
+                                -- Track zombie for repath convergence
+                                table.insert(job.zombieList, zombie)
                             end
-                            -- NOTE: do NOT broadcast a huge world sound here.
-                            -- Mini-horde zombies target the triggering player only; a big sound radius
-                            -- would pull in the entire cell which defeats the purpose of mini-hordes.
 
                             job.remaining = job.remaining - 1
                             break
                         end
                     end
                 end
+            else
+                -- Player dead/gone, cancel remaining spawns
+                job.remaining = 0
             end
 
             if job.remaining <= 0 then
-                SN.log("Mini-horde spawn complete")
-                table.remove(activeMiniHordes, i)
+                SN.log("Mini-horde spawn complete (" .. #job.zombieList .. " tracked)")
             end
+        end
+
+        -- ========== REPATH PHASE (every 5 seconds, same as siege) ==========
+        if job.repathTick >= MH_REPATH_INTERVAL then
+            job.repathTick = 0
+            local p = job.player
+            if p and p:isAlive() then
+                local okP, pX = pcall(function() return p:getX() end)
+                local okPY, pY = pcall(function() return p:getY() end)
+                if okP and okPY and type(pX) == "number" and type(pY) == "number" then
+                    -- Prune dead zombies, repath living ones toward the player
+                    local alive = {}
+                    for _, zombie in ipairs(job.zombieList) do
+                        local okD, dead = pcall(function() return zombie:isDead() end)
+                        if okD and not dead then
+                            pcall(function() zombie:pathToSound(pX, pY, 0) end)
+                            pcall(function() zombie:setTarget(p) end)
+                            pcall(function() zombie:setAttackedBy(p) end)
+                            pcall(function() zombie:spottedNew(p, true) end)
+                            pcall(function() zombie:addAggro(p, 1) end)
+                            table.insert(alive, zombie)
+                        end
+                    end
+                    job.zombieList = alive
+                    -- Attractor sound: converge ALL nearby zombies on the player
+                    if #alive > 0 then
+                        pcall(function() getWorldSoundManager():addSound(p, math.floor(pX), math.floor(pY), 0, 200, 200) end)
+                    end
+                end
+            end
+        end
+
+        -- ========== CLEANUP ==========
+        -- Job is done when spawning is finished AND all tracked zombies are dead/gone
+        if job.remaining <= 0 and #job.zombieList == 0 then
+            SN.log("Mini-horde complete (all zombies dead or despawned)")
+            table.remove(activeMiniHordes, i)
         end
     end
 end
