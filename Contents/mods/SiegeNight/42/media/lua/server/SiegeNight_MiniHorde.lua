@@ -461,9 +461,10 @@ local function onMiniHordeTick()
                                 if ok and zombies and zombies:size() > 0 then
                                     local zombie = zombies:get(0)
                                     local p = job.player
-                                    -- Single pcall for all targeting (no attractor sound — only tagged zombies move)
+                                    -- pathToCharacter paths directly to a living entity (more persistent than pathToSound).
+                                    -- Can throw InvocationTargetException but pcall catches it safely.
                                     pcall(function()
-                                        zombie:pathToSound(px, py, 0)
+                                        zombie:pathToCharacter(p)
                                         zombie:setTarget(p)
                                         zombie:setAttackedBy(p)
                                         zombie:spottedNew(p, true)
@@ -498,13 +499,13 @@ local function onMiniHordeTick()
                 local okPY, pY = pcall(function() return p:getY() end)
                 if okP and okPY and type(pX) == "number" and type(pY) == "number" then
                     -- Prune dead zombies, repath living ones toward the player.
-                    -- Single pcall per zombie (reduces overhead from 6 pcalls to 2).
+                    -- pathToCharacter for persistent entity tracking (no global attractor needed).
                     local alive = {}
                     for _, zombie in ipairs(job.zombieList) do
                         local okD, dead = pcall(function() return zombie:isDead() end)
                         if okD and not dead then
                             pcall(function()
-                                zombie:pathToSound(pX, pY, 0)
+                                zombie:pathToCharacter(p)
                                 zombie:setTarget(p)
                                 zombie:setAttackedBy(p)
                                 zombie:spottedNew(p, true)
