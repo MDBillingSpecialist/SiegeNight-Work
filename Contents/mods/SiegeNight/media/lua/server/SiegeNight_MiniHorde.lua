@@ -404,6 +404,9 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
         -- Convergence tracking (matches siege repath system)
         zombieList = {},    -- tracked zombie refs for repath
         repathTick = 0,     -- counts up to MH_REPATH_INTERVAL
+        -- Kill counter: attractor stops when player kills ANY zombies equal to spawn count
+        totalToSpawn = count,
+        killCount = 0,
     })
 end
 
@@ -509,10 +512,10 @@ local function onMiniHordeTick()
                     end
                     job.zombieList = alive
 
-                    -- Step 2: Only attract + repath if spawned zombies still alive.
-                    -- Once all original spawned zombies are killed, stop attracting
-                    -- even if roamers were pulled in. No more sound = roamers wander off.
-                    if #alive > 0 then
+                    -- Step 2: Only attract + repath if kill counter hasn't been reached.
+                    -- Player can kill ANY zombies (spawned or attracted roamers) to hit
+                    -- the counter. Once killCount >= totalToSpawn, attractor stops.
+                    if (job.killCount or 0) < (job.totalToSpawn or 0) then
                         pcall(function()
                             getWorldSoundManager():addSound(p, math.floor(pX), math.floor(pY), 0, 80, 80)
                         end)
@@ -531,9 +534,9 @@ local function onMiniHordeTick()
         end
 
         -- ========== CLEANUP ==========
-        -- Job is done when spawning is finished AND all tracked zombies are dead/gone
-        if job.remaining <= 0 and #job.zombieList == 0 then
-            SN.log("Mini-horde complete (all zombies dead or despawned)")
+        -- Job is done when spawning is finished AND kill counter reached (or all tracked dead)
+        if job.remaining <= 0 and ((job.killCount or 0) >= (job.totalToSpawn or 0) or #job.zombieList == 0) then
+            SN.log("Mini-horde complete (kills: " .. (job.killCount or 0) .. "/" .. (job.totalToSpawn or 0) .. ")")
             table.remove(activeMiniHordes, i)
         end
     end
@@ -570,11 +573,44 @@ function SN.debugForceMiniHorde(player)
         announced = false,
         zombieList = {},
         repathTick = 0,
+        totalToSpawn = count,
+        killCount = 0,
     })
 
     local dirName = SN.getDirName and SN.getDirName(dir) or tostring(dir)
     SN.log("DEBUG: Mini-horde forced. " .. count .. " zombies from " .. dirName)
     return count, dir
+end
+
+-- ==========================================
+-- MINI-HORDE KILL COUNTER
+-- ==========================================
+-- Any zombie killed near an active mini-horde player counts toward the
+-- kill target. Player doesn't have to hunt down specific tagged zombies —
+-- kill ANY 22 zombies (spawned or attracted roamers) and the attractor stops.
+
+local function onMiniHordeZombieDead(zombie)
+    if #activeMiniHordes == 0 then return end
+    local zx, zy
+    local okZ = pcall(function() zx = zombie:getX(); zy = zombie:getY() end)
+    if not okZ or not zx then return end
+
+    for _, job in ipairs(activeMiniHordes) do
+        if job.player and job.totalToSpawn and (job.killCount or 0) < job.totalToSpawn then
+            local okP, px = pcall(function() return job.player:getX() end)
+            local okPY, py = pcall(function() return job.player:getY() end)
+            if okP and okPY and px and py then
+                local dist = math.abs(zx - px) + math.abs(zy - py)
+                if dist < 100 then
+                    job.killCount = (job.killCount or 0) + 1
+                    if job.killCount >= job.totalToSpawn then
+                        SN.log("Mini-horde kill target reached (" .. job.killCount .. "/" .. job.totalToSpawn .. ") — attractor stopped")
+                    end
+                    return  -- credit to first matching job only
+                end
+            end
+        end
+    end
 end
 
 -- ==========================================
@@ -584,4 +620,5 @@ Events.EveryTenMinutes.Add(onEveryTenMinutes)
 Events.OnTick.Add(onMiniHordeTick)
 Events.OnWeaponSwing.Add(onWeaponSwing)
 Events.OnHitZombie.Add(onHitZombie)
+Events.OnZombieDead.Add(onMiniHordeZombieDead)
 
