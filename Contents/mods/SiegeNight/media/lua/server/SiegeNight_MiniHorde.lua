@@ -70,9 +70,17 @@ end
 
 local function forceKillZombie(z)
     if not z then return end
+
     if z.Kill then pcall(function() z:Kill(nil) end) end
     if z.kill then pcall(function() z:kill(nil) end) end
+    if z.forceKill then pcall(function() z:forceKill() end) end
+
     if z.setHealth then pcall(function() z:setHealth(0) end) end
+
+    -- Extra hardening for MP edge cases.
+    if z.setBecomeCorpse then pcall(function() z:setBecomeCorpse(true) end) end
+    if z.setFakeDead then pcall(function() z:setFakeDead(false) end) end
+    if z.setReanimate then pcall(function() z:setReanimate(false) end) end
 end
 
 local function miniHordeCorpseSanityTick(zombieList)

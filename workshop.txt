@@ -1,4 +1,4 @@
-version=2.6.19
+version=2.6.20
 id=3669589584
 title=Siege Night
 description=[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-title.png[/img]
@@ -8,6 +8,9 @@ description=
 description=Siege Night turns your base into a battleground. Every few nights, the dead march on your position from a single direction -- wave after wave, growing stronger as the night goes on. Build your walls. Stock your ammo. Survive until dawn.
 description=
 description=Built for fortress defense. Solo or multiplayer.
+description=
+description=[b]Mod ID:[/b] SiegeNight   |   [b]Workshop ID:[/b] 3669589584
+description=[b]Workshop URL:[/b] https://steamcommunity.com/sharedfiles/filedetails/?id=3669589584
 description=
 description=[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
 description=

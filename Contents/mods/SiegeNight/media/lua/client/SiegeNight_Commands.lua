@@ -123,13 +123,17 @@ local function onChatMessage(chatMessage)
         sendClientCommand(player, SN.CLIENT_MODULE, "CmdSiegeOptIn", {})
         suppressMessage(chatMessage)
 
+    elseif subcommand == "skipbreak" or subcommand == "skip" then
+        sendClientCommand(player, SN.CLIENT_MODULE, "CmdSiegeSkipBreak", {})
+        suppressMessage(chatMessage)
+
     elseif subcommand == "testoutfits" then
         player:Say("Testing all outfits... check console for results.")
         sendClientCommand(player, SN.CLIENT_MODULE, "CmdTestOutfits", {})
         suppressMessage(chatMessage)
 
     else
-        player:Say("Commands: !siege start, stop, status, next, vote, optout, optin")
+        player:Say("Commands: !siege start, stop, status, next, vote, skip, optout, optin")
         suppressMessage(chatMessage)
     end
 end

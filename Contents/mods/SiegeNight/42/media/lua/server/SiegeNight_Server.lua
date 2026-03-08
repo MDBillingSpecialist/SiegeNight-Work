@@ -216,9 +216,19 @@ end
 
 local function forceKillZombie(z)
     if not z then return end
+
+    -- Prefer engine kill paths first; fall back to health=0.
     if z.Kill then pcall(function() z:Kill(nil) end) end
     if z.kill then pcall(function() z:kill(nil) end) end
+    if z.forceKill then pcall(function() z:forceKill() end) end
+
     if z.setHealth then pcall(function() z:setHealth(0) end) end
+
+    -- Extra hardening for MP edge cases (downed-but-not-dead / unlootable corpse reports).
+    -- These methods may not exist on all builds; guarded accordingly.
+    if z.setBecomeCorpse then pcall(function() z:setBecomeCorpse(true) end) end
+    if z.setFakeDead then pcall(function() z:setFakeDead(false) end) end
+    if z.setReanimate then pcall(function() z:setReanimate(false) end) end
 end
 
 local function specialCorpseSanityTick(zombieList)
@@ -272,7 +282,9 @@ local function onZombieDead(zombie)
     local md = zombie:getModData()
     local siegeData = SN.getWorldData()
     if not siegeData then return end
-    if siegeData.siegeState ~= SN.STATE_ACTIVE then return end
+    -- Allow kill tracking if global state is ACTIVE or DAWN (clusters may still be ACTIVE
+    -- even when global has transitioned to DAWN due to per-cluster independence)
+    if siegeData.siegeState ~= SN.STATE_ACTIVE and siegeData.siegeState ~= SN.STATE_DAWN then return end
 
     local clusterID = md and md.SN_ClusterID
     local cs = clusterID and clusterSieges[clusterID] or nil
@@ -1263,6 +1275,36 @@ local function onClientCommand(module, command, player, args)
     elseif command == "CmdSiegeStop" then handleSiegeStop(player)
     elseif command == "CmdSiegeVote" then handleSiegeVote(player)
     elseif command == "CmdSiegeVoteYes" then handleSiegeVoteYes(player)
+    elseif command == "CmdSiegeSkipBreak" then
+        local siegeData = SN.getWorldData()
+        if not siegeData then sendResponseToPlayer(player, "Siege Night not ready yet."); return end
+        if siegeData.siegeState ~= SN.STATE_ACTIVE then sendResponseToPlayer(player, "No siege is active."); return end
+        local skipped = 0
+        for _, cs in pairs(clusterSieges) do
+            if cs.currentPhase == SN.PHASE_BREAK then
+                cs.breakTicksRemaining = 0
+                advanceClusterWavePhase(cs, siegeData)
+                skipped = skipped + 1
+                SN.log("Skip break: cluster " .. cs.id .. " -> wave " .. cs.currentWaveIndex .. " by " .. (player:getUsername() or "player"))
+            end
+        end
+        if skipped > 0 then
+            broadcastToAll("CmdResponse", { message = "Break skipped by " .. (player:getUsername() or "player") .. "! Next wave incoming!" })
+        else
+            -- Tell the player what's actually happening
+            local info = "Not on break."
+            local cs = findPlayerCluster(player)
+            if cs then
+                local aliveCount = countAliveSiegeZombies(cs)
+                local maxActive = SN.getSandbox("MaxActiveZombies") or 200
+                info = info .. " Phase: " .. (cs.currentPhase or "?") .. ", alive: " .. aliveCount .. "/" .. maxActive
+                if aliveCount >= maxActive then
+                    info = info .. " (cap hit — kill zombies to resume spawning)"
+                end
+            end
+            sendResponseToPlayer(player, info)
+        end
+
     elseif command == "CmdSiegeOptOut" then
         player:getModData().SN_OptedOut = true
         sendServerCommand(player, SN.CLIENT_MODULE, "ServerMsg", { msg = "Opted out of sieges." })
@@ -1623,6 +1665,7 @@ local function onServerTick()
         if isServer() then
             ModData.transmit("SiegeNight")
             if siegeData.siegeState == SN.STATE_ACTIVE then
+                -- Per-cluster sync to cluster members (detailed)
                 for _, cs in pairs(clusterSieges) do
                     if cs.siegeState == SN.STATE_ACTIVE then
                         local aliveCount = countAliveSiegeZombies(cs)
@@ -1634,6 +1677,19 @@ local function onServerTick()
                         })
                     end
                 end
+                -- Global broadcast to ALL clients (ensures every player sees aggregate progress)
+                -- This catches players who weren't matched to a cluster or joined mid-siege
+                updateGlobalAggregates(siegeData)
+                sendServerCommand(SN.CLIENT_MODULE, "SiegeTick", {
+                    spawnedThisSiege = siegeData.spawnedThisSiege or 0,
+                    killsThisSiege = siegeData.killsThisSiege or 0,
+                    bonusKills = siegeData.bonusKills or 0,
+                    specialKills = siegeData.specialKillsThisSiege or 0,
+                    currentWaveIndex = siegeData.currentWaveIndex or 0,
+                    currentPhase = siegeData.currentPhase or SN.PHASE_WAVE,
+                    targetZombies = siegeData.targetZombies or 0,
+                    clusterId = 0,  -- 0 = global aggregate
+                })
             end
         end
     end
@@ -1747,6 +1803,27 @@ local function onPlayerConnect(player)
                 table.insert(bestCS.members, player)
                 bestCS.centroidPlayer = pickCentroidPlayer(bestCS.members)
                 SN.log("Player " .. (player:getUsername() or "?") .. " joined cluster " .. bestCS.id)
+                -- Immediately sync full state to newly connected player so they see wave/kill info
+                sendServerCommand(player, SN.CLIENT_MODULE, "StateChange", {
+                    state = SN.STATE_ACTIVE, siegeCount = siegeData.siegeCount,
+                    direction = bestCS.direction, targetZombies = bestCS.targetZombies,
+                    totalWaves = #bestCS.waveStructure, clusterId = bestCS.id,
+                })
+                local aliveCount = countAliveSiegeZombies(bestCS)
+                sendServerCommand(player, SN.CLIENT_MODULE, "SiegeTick", {
+                    spawnedThisSiege = bestCS.spawnedThisSiege, killsThisSiege = bestCS.killsThisSiege,
+                    bonusKills = bestCS.bonusKills, specialKills = bestCS.specialKillsThisSiege,
+                    currentWaveIndex = bestCS.currentWaveIndex, currentPhase = bestCS.currentPhase,
+                    targetZombies = bestCS.targetZombies, clusterId = bestCS.id, aliveCount = aliveCount,
+                })
+            else
+                -- No nearby cluster — still send global state so UI works
+                sendServerCommand(player, SN.CLIENT_MODULE, "StateChange", {
+                    state = SN.STATE_ACTIVE, siegeCount = siegeData.siegeCount,
+                    direction = siegeData.lastDirection or 0,
+                    targetZombies = siegeData.targetZombies or 0,
+                    totalWaves = math.max(3, math.min(7, math.floor((siegeData.targetZombies or 75) / 60) + 2)),
+                })
             end
         end
     end

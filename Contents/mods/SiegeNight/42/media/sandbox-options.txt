@@ -13,7 +13,7 @@ option SiegeNight.FirstSiegeDay
 	type = integer,
 	min = 1,
 	max = 365,
-	default = 3,
+	default = 5,
 	page = SiegeNight,
 	translation = SN_FirstSiegeDay,
 }
@@ -23,7 +23,7 @@ option SiegeNight.FrequencyDays
 	type = integer,
 	min = 1,
 	max = 365,
-	default = 3,
+	default = 5,
 	page = SiegeNight,
 	translation = SN_FrequencyDays,
 }
@@ -43,7 +43,7 @@ option SiegeNight.BaseZombieCount
 	type = integer,
 	min = 10,
 	max = 5000,
-	default = 75,
+	default = 50,
 	page = SiegeNight,
 	translation = SN_BaseZombieCount,
 }
@@ -62,7 +62,7 @@ option SiegeNight.MaxZombies
 	type = integer,
 	min = 50,
 	max = 5000,
-	default = 1500,
+	default = 800,
 	page = SiegeNight,
 	translation = SN_MaxZombies,
 }
@@ -138,7 +138,7 @@ option SiegeNight.MaxActiveZombies
 	type = integer,
 	min = 50,
 	max = 2000,
-	default = 300,
+	default = 200,
 	page = SiegeNight,
 	translation = SN_MaxActiveZombies,
 }
@@ -241,7 +241,7 @@ option SiegeNight.MiniHorde_NoiseThreshold
 	type = integer,
 	min = 10,
 	max = 200,
-	default = 80,
+	default = 100,
 	page = SiegeNightMiniHorde,
 	translation = SN_MiniHorde_NoiseThreshold,
 }
@@ -251,7 +251,7 @@ option SiegeNight.MiniHorde_MaxZombies
 	type = integer,
 	min = 5,
 	max = 200,
-	default = 50,
+	default = 35,
 	page = SiegeNightMiniHorde,
 	translation = SN_MiniHorde_MaxZombies,
 }
@@ -261,7 +261,7 @@ option SiegeNight.MiniHorde_MinZombies
 	type = integer,
 	min = 1,
 	max = 100,
-	default = 10,
+	default = 8,
 	page = SiegeNightMiniHorde,
 	translation = SN_MiniHorde_MinZombies,
 }
@@ -270,7 +270,7 @@ option SiegeNight.MiniHorde_CooldownMinutes
 	type = integer,
 	min = 5,
 	max = 180,
-	default = 30,
+	default = 60,
 	page = SiegeNightMiniHorde,
 	translation = SN_MiniHorde_CooldownMinutes,
 }
@@ -280,7 +280,7 @@ option SiegeNight.MiniHorde_MaxPerDay
 	type = integer,
 	min = 1,
 	max = 50,
-	default = 5,
+	default = 2,
 	page = SiegeNightMiniHorde,
 	translation = SN_MiniHorde_MaxPerDay,
 }
@@ -311,18 +311,18 @@ option SiegeNight.MiniHorde_EstablishmentScaling
 
 option SiegeNight.SiegeWeatherEnabled
 {
-	type = boolean,
-	default = true,
-	page = SiegeNight,
-	translation = SN_SiegeWeatherEnabled,
+    type = boolean,
+    default = false,
+    page = SiegeNight,
+    translation = SN_SiegeWeatherEnabled,
 }
 
 option SiegeNight.SiegeWeatherIntensity
 {
-	type = double,
-	min = 0.0,
-	max = 2.0,
-	default = 1.0,
-	page = SiegeNight,
-	translation = SN_SiegeWeatherIntensity,
+    type = double,
+    min = 0.0,
+    max = 2.0,
+    default = 1.0,
+    page = SiegeNight,
+    translation = SN_SiegeWeatherIntensity,
 }

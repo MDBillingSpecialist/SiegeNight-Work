@@ -9,7 +9,7 @@ local SN = {}
 -- ==========================================
 -- VERSION
 -- ==========================================
-SN.VERSION = "2.6.19"
+SN.VERSION = "2.6.21"
 SN.MOD_ID = "SiegeNight"
 SN.CLIENT_MODULE = "SiegeNightModule"
 
@@ -108,12 +108,12 @@ SN.ZOMBIE_OUTFITS = {
 -- ==========================================
 SN.DEFAULTS = {
     Enabled = true,
-    FirstSiegeDay = 3,
-    FrequencyDays = 3,
+    FirstSiegeDay = 5,
+    FrequencyDays = 5,
     FrequencyDaysMax = 0,  -- 0 = use FrequencyDays exactly. If > FrequencyDays, randomize between the two.
-    BaseZombieCount = 75,
+    BaseZombieCount = 50,
     ScalingMultiplier = 1.5,
-    MaxZombies = 1500,
+    MaxZombies = 800,
     WarningSignsEnabled = true,
     DirectionalAttacks = true,
     SpawnDistance = 45,
@@ -130,20 +130,23 @@ SN.DEFAULTS = {
     TankHealthMultiplier = 5.0,
     -- Mini-hordes
     MiniHorde_Enabled = true,
-    MiniHorde_NoiseThreshold = 80,
-    MiniHorde_MaxZombies = 50,
-    MiniHorde_MinZombies = 10,
-    MiniHorde_CooldownMinutes = 30,
-    MiniHorde_MaxPerDay = 5,
+    MiniHorde_NoiseThreshold = 100,
+    MiniHorde_MaxZombies = 35,
+    MiniHorde_MinZombies = 8,
+    MiniHorde_CooldownMinutes = 60,
+    MiniHorde_MaxPerDay = 2,
     MiniHorde_ActivityScaling = true,
     -- Scaling factors
     MiniHorde_PlayerScaling = true,
     MiniHorde_EstablishmentScaling = true,
     -- Per-cluster / safehouse anchor system
-    MaxActiveZombies = 300,
+    MaxActiveZombies = 200,
     SafehouseSearchRadius = 300,
     SafehouseMergeDistance = 50,
     SpawnAnchor = 1,  -- 1 = player, 2 = safehouse
+    -- Weather (optional; purely cosmetic)
+    SiegeWeatherEnabled = false,
+    SiegeWeatherIntensity = 1.0,
 }
 
 -- ==========================================

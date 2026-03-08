@@ -6,6 +6,9 @@ Siege Night turns your base into a battleground. Every few nights, the dead marc
 
 Built for fortress defense. Solo or multiplayer.
 
+[b]Mod ID:[/b] SiegeNight   |   [b]Workshop ID:[/b] 3669589584
+[b]Workshop URL:[/b] https://steamcommunity.com/sharedfiles/filedetails/?id=3669589584
+
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
 
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-features.png[/img]
@@ -42,6 +45,39 @@ Between siege nights, your activity generates [b]heat[/b]. Generators (+15), gun
 Push your luck too far and you'll hear: [i]"Something's attracting them from the south..."[/i]
 
 Mini-hordes come from the direction of your heat source. An attractor system pulls them toward you. Kill enough and the attractor shuts off -- the rest scatter. Cooldown between triggers and a daily cap so you won't get chain-hit.
+
+[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
+
+[h1]Recommended MP Baseline ("Normal")[/h1]
+
+If SiegeNight feels like it's dumping hundreds of zombies on you early (ex: day 3 Rosewood), these are a good starting point for multiplayer.
+
+Note: SiegeNight is still being balanced. The defaults are intentionally flexible, not a tuned "Normal" difficulty yet.
+
+Quick scaling tip (MP): if you have more players, raise caps; if you have fewer, lower them.
+- 1-2 players: BaseZombieCount 25-40, MaxActiveZombies 120-160
+- 3-5 players: (baseline below)
+- 6+ players: BaseZombieCount 60-80, MaxActiveZombies 250-350
+
+[b]SiegeNight[/b]
+[list]
+[*] FirstSiegeDay: [b]5[/b]
+[*] FrequencyDays: [b]5[/b]
+[*] BaseZombieCount: [b]50[/b]
+[*] MaxActiveZombies (per group): [b]200[/b]
+[*] MaxZombies (per siege): [b]800[/b]
+[/list]
+
+[b]Mini-Hordes[/b]
+[list]
+[*] MiniHorde_NoiseThreshold: [b]100[/b]
+[*] MiniHorde_CooldownMinutes: [b]60[/b]
+[*] MiniHorde_MaxPerDay: [b]2[/b]
+[*] MiniHorde_MaxZombies: [b]35[/b]
+[*] MiniHorde_MinZombies: [b]8[/b]
+[/list]
+
+These settings keep the "fortress defense" vibe but give you time to establish a base, and they prevent back-to-back mini-hordes from spiraling the early game.
 
 [img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/divider.png[/img]
 
