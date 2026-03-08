@@ -3,11 +3,12 @@
     Player-facing chat commands for Siege Night. CLIENT-SIDE.
 
     Commands (type in chat):
-    !siege start     Start a siege immediately (admin only in MP)
-    !siege stop      End the current siege (admin only in MP)
-    !siege status    Show current siege state and stats
-    !siege next      Show when the next siege is scheduled
-    !siege vote      Start a vote to trigger a siege (any player)
+    !siege start      Start a siege immediately (admin only in MP)
+    !siege stop       End the current siege (admin only in MP)
+    !siege status     Show current siege state and stats
+    !siege next       Show when the next siege is scheduled
+    !siege vote       Start a vote to trigger a siege (any player)
+    !siege breakskip  Skip the current wave break (any player)
 ]]
 
 local SN = require("SiegeNight_Shared")
@@ -123,7 +124,7 @@ local function onChatMessage(chatMessage)
         sendClientCommand(player, SN.CLIENT_MODULE, "CmdSiegeOptIn", {})
         suppressMessage(chatMessage)
 
-    elseif subcommand == "skipbreak" or subcommand == "skip" then
+    elseif subcommand == "breakskip" or subcommand == "skipbreak" or subcommand == "break" then
         sendClientCommand(player, SN.CLIENT_MODULE, "CmdSiegeSkipBreak", {})
         suppressMessage(chatMessage)
 
@@ -133,7 +134,7 @@ local function onChatMessage(chatMessage)
         suppressMessage(chatMessage)
 
     else
-        player:Say("Commands: !siege start, stop, status, next, vote, skip, optout, optin")
+        player:Say("Commands: !siege start, stop, status, next, vote, breakskip, optout, optin")
         suppressMessage(chatMessage)
     end
 end
