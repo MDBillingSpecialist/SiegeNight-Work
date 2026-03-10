@@ -1,4 +1,4 @@
-version=2.6.20
+version=2.6.24
 id=3669589584
 title=Siege Night
 description=[img]https://raw.githubusercontent.com/MDBillingSpecialist/SiegeNight-Work/main/images/banner-title.png[/img]
@@ -60,6 +60,7 @@ description=[*] [b]!siege status[/b] -- Show current siege state, kills, and pro
 description=[*] [b]!siege next[/b] -- Show when the next siege is scheduled
 description=[*] [b]!siege vote[/b] -- Start a vote to trigger a siege (any player)
 description=[*] [b]!siege yes[/b] -- Vote yes on an active vote
+description=[*] [b]!siege breakskip[/b] -- Skip the current break between waves (any player)
 description=[*] [b]!siege optout / optin[/b] -- Opt out/in of sieges
 description=[/list]
 description=

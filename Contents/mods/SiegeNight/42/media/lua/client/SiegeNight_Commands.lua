@@ -8,7 +8,7 @@
     !siege status     Show current siege state and stats
     !siege next       Show when the next siege is scheduled
     !siege vote       Start a vote to trigger a siege (any player)
-    !siege breakskip  Skip the current wave break (any player)
+    !siege skip       Skip the current wave cooldown (any player)
 ]]
 
 local SN = require("SiegeNight_Shared")
@@ -77,12 +77,20 @@ local function onChatMessage(chatMessage)
     elseif subcommand == "status" then
         local siegeData = SN.getWorldData()
         if siegeData then
-            local kills = siegeData.killsThisSiege or 0
-            local spawned = siegeData.spawnedThisSiege or 0
-            local target = siegeData.targetZombies or 0
+            -- Prefer realtime data in MP (more up-to-date than ModData)
+            local rt = SN._clientRealtime
+            local useRT = rt and rt.active and isClient()
+            local kills = useRT and rt.killsThisSiege or (siegeData.killsThisSiege or 0)
+            local spawned = useRT and rt.spawnedThisSiege or (siegeData.spawnedThisSiege or 0)
+            local target = useRT and rt.targetZombies or (siegeData.targetZombies or 0)
             local state = siegeData.siegeState or "UNKNOWN"
+            if isClient() and rt and rt.state then state = rt.state end
             if state == SN.STATE_ACTIVE then
-                player:Say("Siege #" .. siegeData.siegeCount .. "  " .. kills .. " killed, " .. spawned .. "/" .. target .. " spawned")
+                local waveInfo = ""
+                local waveIdx = useRT and rt.waveIndex or (siegeData.currentWaveIndex or 0)
+                local phase = useRT and rt.phase or (siegeData.currentPhase or "?")
+                if waveIdx > 0 then waveInfo = "  W" .. waveIdx .. " " .. tostring(phase) end
+                player:Say("Siege #" .. (siegeData.siegeCount or 0) .. "  " .. kills .. " killed, " .. spawned .. "/" .. target .. " spawned" .. waveInfo)
             elseif state == SN.STATE_IDLE then
                 player:Say("No siege active. Next: day " .. (siegeData.nextSiegeDay or "?"))
             else
@@ -124,7 +132,7 @@ local function onChatMessage(chatMessage)
         sendClientCommand(player, SN.CLIENT_MODULE, "CmdSiegeOptIn", {})
         suppressMessage(chatMessage)
 
-    elseif subcommand == "breakskip" or subcommand == "skipbreak" or subcommand == "break" then
+    elseif subcommand == "breakskip" or subcommand == "skipbreak" or subcommand == "break" or subcommand == "skip" then
         sendClientCommand(player, SN.CLIENT_MODULE, "CmdSiegeSkipBreak", {})
         suppressMessage(chatMessage)
 
@@ -134,7 +142,7 @@ local function onChatMessage(chatMessage)
         suppressMessage(chatMessage)
 
     else
-        player:Say("Commands: !siege start, stop, status, next, vote, breakskip, optout, optin")
+        player:Say("Commands: !siege start, stop, status, next, vote, skip, optout, optin")
         suppressMessage(chatMessage)
     end
 end

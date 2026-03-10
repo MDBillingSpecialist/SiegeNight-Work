@@ -1,6 +1,6 @@
 name=Siege Night
 id=SiegeNight
-description=<H1><ORANGE>SIEGE NIGHT v2.6.21
+description=<H1><ORANGE>SIEGE NIGHT v2.7.0
 description=<BR>
 description=<WHITE>Every night could be your last. Siege Night turns your base into a battleground.
 description=<BR>
@@ -10,7 +10,7 @@ description=Built for fortress defense - solo or multiplayer.
 description=<BR>
 description=<YELLOW>Features:
 description=<BR>
-description=<WHITE>- Wave system: WAVE > TRICKLE > BREAK cycles that escalate through the night
+description=<WHITE>- Two-layer wave system: surge waves + baseline tide that never stops
 description=- Directional attacks from a random compass direction each siege
 description=- Per-group independent sieges in MP (separate waves, direction, kills)
 description=- Special zombies after midnight (Sprinters, Breakers, Tanks)
@@ -24,7 +24,7 @@ description=- Debug tools (Numpad keys) for testing
 description=<BR>
 description=<RED>Report bugs on the Workshop page!
 poster=poster.png
-modversion=2.6.21
+modversion=2.7.0
 author=Unprocessable Entities
 
 

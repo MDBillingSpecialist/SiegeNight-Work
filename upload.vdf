@@ -1,13 +1,7 @@
 "workshopitem"
 {
-    "appid"             "108600"
-    "publishedfileid"   "3669589584"
-    "contentfolder"     "C:\Users\theth\Zomboid\Workshop\SiegeNight\Contents"
-    "previewfile"       "C:\Users\theth\Zomboid\Workshop\SiegeNight\preview.png"
-    "descriptionfile"   "C:\Users\theth\Zomboid\Workshop\SiegeNight\description.txt"
-    "changenote"        "v2.6.20\n- Tuned DEFAULTS toward MP \"Normal\": first siege day, siege frequency, base zombie count, and mini-horde thresholds/cooldowns are less spicy out of the box.\n- MP corpse sanity hardening: force-kill sanity tick applies to ANY SiegeNight-tagged zombie (SN_SpecialType OR SN_Siege OR SN_MiniHorde) if it stays downed >2s.\n- Added debug logging when corpse sanity force-kills a zombie (helps isolate MP downed/unlootable cases)."
+  "appid" "108600"
+  "publishedfileid" "3669589584"
+  "contentfolder" "C:\\Users\\theth\\Zomboid\\Workshop\\SiegeNight\\Contents"
+  "changenote" "v2.7.0 — Two-Layer Wave System + Solo Fix + Day-Length Scaling\n\n• NEW: Two-layer wave system — surge waves crash + baseline tide runs constantly (no more silence between waves)\n• NEW: Siege duration scales with PZ day length (2-hour days = proportionally longer sieges)\n• FIX: Solo play completely overhauled — zombies now path properly in singleplayer\n• FIX: Zombies no longer die on their own in solo (CorpseSanity false positives fixed)\n• FIX: Removed AllowRepathDelay crash in solo\n• FIX: Custom sound/groan disabled (no sound assets shipped yet)\n• FIX: Stuck culling disabled in solo to prevent kill counter racing\n• Cooldowns between waves scale with day length (longer days = longer siege)\n• Solo wave pacing: steady spawns over 30+ seconds per wave (scales with day length)\n• Mini-hordes disabled by default"
 }
-
-
-
-

@@ -9,7 +9,7 @@ local SN = {}
 -- ==========================================
 -- VERSION
 -- ==========================================
-SN.VERSION = "2.6.21"
+SN.VERSION = "2.7.0"
 SN.MOD_ID = "SiegeNight"
 SN.CLIENT_MODULE = "SiegeNightModule"
 
@@ -69,18 +69,29 @@ SN.DIR_NAMES = {"North", "Northeast", "East", "Southeast", "South", "Southwest",
 -- ==========================================
 -- WAVE SYSTEM CONSTANTS
 -- ==========================================
--- A siege night is structured as repeating cycles:
---   WAVE (intense burst) -> TRICKLE (slow stragglers) -> BREAK (quiet respite)
--- Wave sizes escalate throughout the night.
-SN.WAVE_SPAWN_INTERVAL = 6       -- ticks between spawns during a WAVE (~0.2s)
-SN.WAVE_BATCH_SIZE = 4            -- zombies per spawn tick during WAVE
-SN.TRICKLE_SPAWN_INTERVAL = 60    -- ticks between spawns during TRICKLE (~2s)
-SN.TRICKLE_BATCH_SIZE = 1         -- zombies per spawn tick during TRICKLE
+-- Two-layer spawn system (ocean rhythm):
+--   Layer 1: BASELINE TIDE — constant 1 zombie every 2 sec, never stops (35% of budget)
+--   Layer 2: SURGE WAVES — periodic instant crashes of 50-100 zombies (65% of budget)
+-- During cooldown between surges, baseline keeps going → pressure never goes silent.
+-- Dynamic — surge sizes vary ±20% so it never feels mechanical.
 
--- Wave phase names
-SN.PHASE_WAVE    = "WAVE"
-SN.PHASE_TRICKLE = "TRICKLE"
-SN.PHASE_BREAK   = "BREAK"
+-- Surge layer (the crashing waves)
+SN.SURGE_SPAWN_INTERVAL = 1       -- every tick during SURGE (fastest possible)
+SN.SURGE_BATCH_SIZE = 15          -- zombies per tick during SURGE (~450/sec theoretical, capped by MAX_SPAWNS)
+
+-- Baseline layer (the tide that never recedes)
+SN.BASELINE_SPAWN_INTERVAL = 60   -- ticks between baseline spawns (1 every 2 seconds)
+SN.BASELINE_BATCH_SIZE = 1        -- 1 zombie per baseline spawn tick
+
+-- Budget split (how total zombies are divided between layers)
+SN.BASELINE_BUDGET_FRACTION = 0.35 -- 35% of total zombies go to baseline tide
+
+-- Phase names (simplified: just SURGE and COOLDOWN)
+SN.PHASE_SURGE    = "SURGE"
+SN.PHASE_COOLDOWN = "COOLDOWN"
+-- Backward compat aliases
+SN.PHASE_BURST    = SN.PHASE_SURGE     -- old name still works
+SN.PHASE_BREAK    = SN.PHASE_COOLDOWN  -- old name still works
 
 -- ==========================================
 -- OUTFIT TABLES
@@ -113,7 +124,7 @@ SN.DEFAULTS = {
     FrequencyDaysMax = 0,  -- 0 = use FrequencyDays exactly. If > FrequencyDays, randomize between the two.
     BaseZombieCount = 50,
     ScalingMultiplier = 1.5,
-    MaxZombies = 800,
+    MaxZombies = 4000,
     WarningSignsEnabled = true,
     DirectionalAttacks = true,
     SpawnDistance = 45,
@@ -129,7 +140,7 @@ SN.DEFAULTS = {
     TankCount = 2,
     TankHealthMultiplier = 5.0,
     -- Mini-hordes
-    MiniHorde_Enabled = true,
+    MiniHorde_Enabled = false,
     MiniHorde_NoiseThreshold = 100,
     MiniHorde_MaxZombies = 35,
     MiniHorde_MinZombies = 8,
@@ -140,11 +151,12 @@ SN.DEFAULTS = {
     MiniHorde_PlayerScaling = true,
     MiniHorde_EstablishmentScaling = true,
     -- Per-cluster / safehouse anchor system
-    MaxActiveZombies = 200,
+    MaxActiveZombies = 400,
     SafehouseSearchRadius = 300,
     SafehouseMergeDistance = 50,
     SpawnAnchor = 1,  -- 1 = player, 2 = safehouse
     -- Weather (optional; purely cosmetic)
+    StripSiegeZombieLoot = false,  -- If true, removes non-clothing items from siege/mini-horde zombies so they don't drop loot
     SiegeWeatherEnabled = false,
     SiegeWeatherIntensity = 1.0,
 }
@@ -153,18 +165,90 @@ SN.DEFAULTS = {
 -- SAFE SANDBOX ACCESS
 -- ==========================================
 function SN.getSandbox(key)
+    local val = nil
     if SandboxVars and SandboxVars.SiegeNight and SandboxVars.SiegeNight[key] ~= nil then
-        return SandboxVars.SiegeNight[key]
+        val = SandboxVars.SiegeNight[key]
+    elseif SN.DEFAULTS[key] ~= nil then
+        val = SN.DEFAULTS[key]
+    else
+        SN.log("WARNING: Unknown sandbox key '" .. tostring(key) .. "' with no default")
+        return nil
     end
-    if SN.DEFAULTS[key] ~= nil then
-        return SN.DEFAULTS[key]
+    -- Auto-coerce strings to numbers when the default is numeric.
+    -- Some dedicated servers pass SandboxVars as strings ("200" instead of 200).
+    if val ~= nil and type(val) ~= "number" and type(SN.DEFAULTS[key]) == "number" then
+        val = tonumber(val)
+        if val == nil then val = SN.DEFAULTS[key] end  -- fallback if unparseable
     end
-    SN.log("WARNING: Unknown sandbox key '" .. tostring(key) .. "' with no default")
-    return nil
+    -- Auto-coerce strings to booleans when the default is boolean.
+    -- Some dedicated servers pass SandboxVars as strings ("true"/"false" instead of true/false).
+    if val ~= nil and type(val) == "string" and type(SN.DEFAULTS[key]) == "boolean" then
+        local lowered = string.lower(val)
+        if lowered == "true" then val = true
+        elseif lowered == "false" then val = false
+        end
+    end
+    return val
 end
 
 function SN.sandboxReady()
     return SandboxVars ~= nil and SandboxVars.SiegeNight ~= nil
+end
+
+local function clampNumber(value, minValue, maxValue)
+    if type(value) ~= "number" then return value end
+    if minValue ~= nil and value < minValue then value = minValue end
+    if maxValue ~= nil and value > maxValue then value = maxValue end
+    return value
+end
+
+function SN.getSandboxNumber(key, minValue, maxValue)
+    local value = tonumber(SN.getSandbox(key))
+    if value == nil then
+        local defaultValue = SN.DEFAULTS[key]
+        if type(defaultValue) == "number" then
+            value = defaultValue
+        end
+    end
+    return clampNumber(value, minValue, maxValue)
+end
+
+--- Day-length scale factor.  1.0 = default 1-hour days.  2.0 = 2-hour days.
+--- Reads PZ's minutes-per-day setting so siege pacing automatically matches.
+function SN.getDayLengthScale()
+    local ok, mpd = pcall(function() return getGameTime():getMinutesPerDay() end)
+    if ok and mpd and mpd > 0 then return mpd / 60 end
+    return 1.0  -- fallback: assume 1-hour days
+end
+
+--- Night window real-time duration in seconds.
+--- Default: 20:00→06:00 = 10 game-hours.  Scales with day length.
+function SN.getNightDurationSeconds()
+    local startH = SN.getSandbox("SiegeStartHour") or 20
+    local endH = SN.getSandbox("SiegeEndHour") or 6
+    local nightHours
+    if endH > startH then nightHours = endH - startH
+    else nightHours = (24 - startH) + endH end
+    local scale = SN.getDayLengthScale()
+    -- 1 game-hour = (minutesPerDay / 24) real minutes = scale * 2.5 real minutes
+    return nightHours * scale * 150
+end
+
+function SN.getWaveCountForTotal(totalZombies)
+    totalZombies = clampNumber(tonumber(totalZombies) or 1, 1, nil)
+    -- Fewer, bigger waves = each one hits harder (ocean-style)
+    -- Small siege (50): 5 waves. Medium (200): 6. Large (800+): 10.
+    return math.max(5, math.min(10, math.floor(totalZombies / 100) + 4))
+end
+
+function SN.getSiegePlayerScale(playerCount)
+    local count = clampNumber(math.floor(tonumber(playerCount) or 1), 1, nil)
+    return 1.0 + math.max(0, count - 1) * 0.75
+end
+
+function SN.getMiniHordePlayerScale(playerCount)
+    local count = clampNumber(math.floor(tonumber(playerCount) or 1), 1, nil)
+    return 1.0 + math.max(0, count - 1) * 0.50
 end
 
 --- Get the next siege frequency (supports random range)
@@ -233,83 +317,110 @@ end
 --- Calculate total siege zombies for a given siege number.
 --- Scales with: base count, multiplier^siegeCount, and player count.
 function SN.calculateSiegeZombies(siegeCount, playerCount)
-    local base = SN.getSandbox("BaseZombieCount")
-    local multiplier = SN.getSandbox("ScalingMultiplier")
-    local maxZ = SN.getSandbox("MaxZombies")
-    playerCount = playerCount or 1
-    local total = math.floor(base * math.pow(multiplier, siegeCount) * playerCount)
+    local base = SN.getSandboxNumber("BaseZombieCount", 1, 5000) or 50
+    local multiplier = SN.getSandboxNumber("ScalingMultiplier", 1.0, 10.0) or 1.5
+    local maxZ = SN.getSandboxNumber("MaxZombies", 1, 5000) or 4000
+    siegeCount = clampNumber(math.floor(tonumber(siegeCount) or 0), 0, nil)
+    local playerScale = SN.getSiegePlayerScale(playerCount)
+    local total = math.floor(base * math.pow(multiplier, siegeCount) * playerScale)
     return math.min(total, maxZ)
 end
 
---- Calculate wave structure for a siege.
---- Returns a table of wave definitions for the entire night.
---- Each wave = { waveSize, trickleSize, breakDurationTicks }
---- Waves escalate through the night but every wave is substantial.
---- First wave = ~25% of total. Last wave = ~40% of total.
---- Break duration scales with horde size: bigger horde = longer breaks (5-10 min).
+--- Calculate wave structure for a siege (two-layer system).
+--- Returns TWO values:
+---   1. waves table: array of { surgeSize, cooldownTicks } per wave
+---   2. baselineBudget: number of zombies for the baseline tide layer
+--- The surge layer gets the remaining zombies (65% by default).
+--- Baseline runs independently — 1 zombie every 2 sec throughout the siege.
+--- Surges are periodic instant crashes. Cooldowns between surges are short
+--- (5-12 sec) because baseline fills the silence.
 function SN.calculateWaveStructure(totalZombies)
     local waves = {}
 
-    -- Number of waves scales with total zombie count
-    -- Small siege (75): 3 waves. Medium (200): 4-5. Large (500+): 6-7.
-    local numWaves = math.max(3, math.min(7, math.floor(totalZombies / 60) + 2))
+    -- Guard: ensure non-negative total
+    if not totalZombies or totalZombies < 1 then totalZombies = 1 end
 
-    -- Distribute zombies with escalation but substantial minimums.
-    -- Use a shifted weight so wave 1 still gets a meaningful chunk:
-    --   weight_i = numWaves + i  (e.g. for 3 waves: weights 4, 5, 6 => 27%, 33%, 40%)
-    --   This ensures the first wave always gets ~25%+ of the total.
+    -- Budget split: baseline tide vs surge waves
+    local baselineBudget = math.floor(totalZombies * SN.BASELINE_BUDGET_FRACTION)
+    local surgeBudget = totalZombies - baselineBudget
+
+    -- Wave count based on surge budget (not total — baseline is independent)
+    local numWaves = SN.getWaveCountForTotal(surgeBudget)
+
+    -- Distribute surge zombies with escalation.
+    -- Shifted weight: wave 1 still gets a meaningful chunk, later waves grow.
+    --   weight_i = numWaves + i  (e.g. for 5 waves: weights 6..10 => ~13%..~22%)
     local totalWeight = 0
     for i = 1, numWaves do
         totalWeight = totalWeight + (numWaves + i)
     end
 
+    -- Dynamic variation seed — uses totalZombies as a cheap deterministic seed
+    -- so the same siege replays consistently but different sieges feel different.
+    local seed = totalZombies * 7 + numWaves * 13
+
     local zombiesAllocated = 0
     for i = 1, numWaves do
         local weight = (numWaves + i) / totalWeight
-        local waveZombies
+        local surgeSize
 
         if i == numWaves then
-            -- Last wave gets all remaining
-            waveZombies = totalZombies - zombiesAllocated
+            -- Last wave gets all remaining surge budget
+            surgeSize = math.max(1, surgeBudget - zombiesAllocated)
         else
-            waveZombies = math.max(10, math.floor(totalZombies * weight))
+            surgeSize = math.max(1, math.floor(surgeBudget * weight))
+            -- Prevent over-allocation: don't exceed remaining budget
+            if zombiesAllocated + surgeSize > surgeBudget then
+                surgeSize = math.max(1, surgeBudget - zombiesAllocated)
+            end
         end
 
-        -- Wave portion = 70% of wave's zombies (intense burst), trickle = 30% (slow stragglers)
-        local waveSize = math.max(5, math.floor(waveZombies * 0.7))
-        local trickleSize = math.max(2, waveZombies - waveSize)
+        -- Dynamic variation: ±20% jitter per wave (ocean waves aren't uniform)
+        seed = (seed * 31 + i * 17) % 1000
+        local jitter = 0.8 + (seed % 400) / 1000  -- range 0.80 .. 1.19
+        surgeSize = math.max(1, math.floor(surgeSize * jitter))
+        -- Re-clamp to remaining budget
+        if zombiesAllocated + surgeSize > surgeBudget then
+            surgeSize = math.max(1, surgeBudget - zombiesAllocated)
+        end
 
-        -- Break duration scales with TOTAL horde size (bigger siege = longer breaks needed)
-        -- Also shorter breaks as the night progresses (urgency increases)
-        -- Small siege (75): breaks ~3-5 min.  Large siege (500+): breaks ~5-10 min.
-        -- Last wave has no break (final push til dawn).
-        -- WaveBreakSeconds sandbox option caps break duration if set > 0.
-        local breakTicks = 0
+        -- Cooldowns scaled to fill ~40% of the night (auto-scales with PZ day length).
+        -- Bigger day-length = longer cooldowns = siege fills the night proportionally.
+        -- Last wave has no cooldown (final push til dawn).
+        -- WaveBreakSeconds sandbox option caps cooldown if set > 0.
+        local cooldownTicks = 0
         if i < numWaves then
-            -- Base break: scales with total zombie count (more zombies = need more prep time)
-            local sizeBreakBase = math.min(18000, math.max(5400, totalZombies * 36))  -- 3-10 min range
-            -- Decay: later waves get shorter breaks (urgency)
-            local decay = 1.0 - (i / numWaves) * 0.6  -- wave 1 = 100%, last-1 = ~40%
-            breakTicks = math.floor(sizeBreakBase * decay)
-            -- Clamp: min 2 min, max 10 min
-            breakTicks = math.max(3600, math.min(18000, breakTicks))
+            local nightSec = SN.getNightDurationSeconds()
+            local targetSiegeSec = nightSec * 0.40   -- siege fills 40% of the night
+            targetSiegeSec = math.max(300, math.min(2400, targetSiegeSec))  -- clamp 5-40 min
+            -- Subtract estimated active spawn time (waves + baseline)
+            local estSpawnSec = numWaves * 25
+            local cooldownBudgetSec = math.max((numWaves - 1) * 10, targetSiegeSec - estSpawnSec)
+            -- Distribute with decay: earlier waves get longer cooldowns
+            local gapIndex = i          -- which gap this is (1..numWaves-1)
+            local numGaps = numWaves - 1
+            local weight = (numGaps - gapIndex + 1)  -- first gap biggest
+            local totalW = numGaps * (numGaps + 1) / 2
+            local thisCooldownSec = math.max(10, math.floor(cooldownBudgetSec * weight / totalW))
+            -- Cap individual cooldown at 3 minutes (baseline keeps it busy, not boring)
+            thisCooldownSec = math.min(180, thisCooldownSec)
+            cooldownTicks = thisCooldownSec * 30
             -- Apply WaveBreakSeconds cap if set
             local maxBreakSec = SN.getSandbox("WaveBreakSeconds")
             if maxBreakSec and maxBreakSec > 0 then
-                breakTicks = math.min(breakTicks, maxBreakSec * 30)
+                cooldownTicks = math.min(cooldownTicks, maxBreakSec * 30)
             end
         end
 
         table.insert(waves, {
-            waveSize = waveSize,
-            trickleSize = trickleSize,
-            breakDurationTicks = breakTicks,
+            surgeSize = surgeSize,
+            cooldownTicks = cooldownTicks,
         })
 
-        zombiesAllocated = zombiesAllocated + waveSize + trickleSize
+        zombiesAllocated = zombiesAllocated + surgeSize
     end
 
-    return waves
+    return waves, baselineBudget
 end
 
 function SN.isSiegeDay(day)
@@ -389,7 +500,7 @@ function SN.initWorldData()
     if data.totalKillsAllTime == nil then data.totalKillsAllTime = 0 end
     -- Wave tracking
     if data.currentWaveIndex == nil then data.currentWaveIndex = 0 end
-    if data.currentPhase == nil then data.currentPhase = SN.PHASE_WAVE end
+    if data.currentPhase == nil then data.currentPhase = SN.PHASE_BURST end
     -- Migrate: if save has old CLEANUP state, move to IDLE
     if data.siegeState == "CLEANUP" then data.siegeState = SN.STATE_IDLE end
     SN._worldData = data

@@ -188,7 +188,7 @@ local function dumpStatus()
         "Spawned: " .. siegeData.spawnedThisSiege .. "/" .. siegeData.targetZombies,
         "Kills: " .. (siegeData.killsThisSiege or 0) .. " | Specials: " .. (siegeData.specialKillsThisSiege or 0),
         "Wave: " .. (siegeData.currentWaveIndex or 0) .. " | Phase: " .. (siegeData.currentPhase or "?"),
-        "Direction: " .. (siegeData.lastDirection >= 0 and SN.DIR_NAMES[siegeData.lastDirection + 1] or "none"),
+        "Direction: " .. (siegeData.lastDirection and siegeData.lastDirection >= 0 and SN.DIR_NAMES[siegeData.lastDirection + 1] or "none"),
         "Next siege: day " .. siegeData.nextSiegeDay,
         "All-time: " .. (siegeData.totalSiegesCompleted or 0) .. " sieges, " .. (siegeData.totalKillsAllTime or 0) .. " kills",
     }
@@ -204,49 +204,11 @@ local function forceNextState()
     local player = getPlayer()
     if not player then return end
 
-    -- MP dedicated: route through server command
-    if isClient() then
-        sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugForceNextState", {})
-        player:Say("[SN] Requesting server state transition...")
-        return
-    end
-
-    -- SP: modify directly
-    local siegeData = SN.getWorldData()
-    if not siegeData then
-        player:Say("[SN] World data not loaded yet")
-        return
-    end
-    local oldState = siegeData.siegeState
-
-    if oldState == SN.STATE_IDLE then
-        siegeData.siegeState = SN.STATE_WARNING
-        siegeData.siegeCount = math.max(0, SN.getSiegeCount(math.floor(SN.getActualDay())))
-
-    elseif oldState == SN.STATE_WARNING then
-        siegeData.siegeState = SN.STATE_ACTIVE
-        siegeData.siegeCount = math.max(0, siegeData.siegeCount)
-        siegeData.targetZombies = SN.calculateSiegeZombies(siegeData.siegeCount, 1)
-        siegeData.spawnedThisSiege = 0
-        siegeData.tanksSpawned = 0
-        siegeData.killsThisSiege = 0
-        siegeData.specialKillsThisSiege = 0
-        siegeData.siegeStartHour = SN.getCurrentHour()
-        local dir = ZombRand(8)
-        if dir == siegeData.lastDirection then dir = (dir + 1) % 8 end
-        siegeData.lastDirection = dir
-
-    elseif oldState == SN.STATE_ACTIVE then
-        siegeData.siegeState = SN.STATE_DAWN
-
-    elseif oldState == SN.STATE_DAWN then
-        -- Dawn goes directly to IDLE (no cleanup)
-        siegeData.siegeState = SN.STATE_IDLE
-        siegeData.nextSiegeDay = math.floor(SN.getActualDay()) + SN.getNextFrequency()
-    end
-
-    SN.log("FORCE STATE: " .. oldState .. " -> " .. siegeData.siegeState)
-    player:Say("[SN] " .. oldState .. " -> " .. siegeData.siegeState)
+    -- Always route through server command handler (works in both SP and MP).
+    -- The server handler properly initializes clusters when transitioning to ACTIVE.
+    -- The old SP direct-modify path skipped cluster init, causing no spawns.
+    sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugForceNextState", {})
+    player:Say("[SN] Forcing state transition...")
 end
 
 local function forceSpawn10()
@@ -278,7 +240,7 @@ local function forceSpawn10()
                     local zombies = addZombiesInOutfit(fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
                     if zombies and zombies:size() > 0 then
                         local z = zombies:get(0)
-                        z:pathToCharacter(player)
+                        if isServer() then pcall(function() z:pathToCharacter(player) end) end
                         z:setTarget(player)
                         z:setAttackedBy(player)
                         z:spottedNew(player, true)
@@ -375,7 +337,7 @@ local function forceSpawnSpecials()
                         zombie:setHealth(healthMult)
                     end
 
-                    zombie:pathToCharacter(player)
+                    if isServer() then pcall(function() zombie:pathToCharacter(player) end) end
                     zombie:setTarget(player)
                     zombie:setAttackedBy(player)
                     zombie:spottedNew(player, true)
@@ -498,42 +460,14 @@ local function forceFullSiege()
     local player = getPlayer()
     if not player then return end
 
-    -- MP dedicated: route through server command
-    if isClient() then
-        sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugForceFullSiege", {})
-        player:Say("[SN] Requesting server to force full siege...")
-        return
-    end
-
-    -- SP: modify directly
-    local siegeData = SN.getWorldData()
-    if not siegeData then
-        player:Say("[SN] World data not loaded yet")
-        return
-    end
-
-    -- Force straight to ACTIVE with MAX zombies regardless of current state or time
-    local currentDay = math.floor(SN.getActualDay())
-    siegeData.siegeCount = math.max(0, SN.getSiegeCount(currentDay))
-    siegeData.siegeState = SN.STATE_ACTIVE
-    siegeData.targetZombies = SN.getSandbox("MaxZombies")
-    siegeData.spawnedThisSiege = 0
-    siegeData.tanksSpawned = 0
-    siegeData.killsThisSiege = 0
-    siegeData.specialKillsThisSiege = 0
-    siegeData.hordeCompleteNotified = false
-    siegeData.siegeStartHour = SN.getCurrentHour()
-
-    local dir = ZombRand(8)
-    if dir == siegeData.lastDirection then dir = (dir + 1) % 8 end
-    siegeData.lastDirection = dir
-
-    SN.log("DEBUG: Forced FULL SIEGE. Siege #" .. siegeData.siegeCount
-        .. ", target: " .. siegeData.targetZombies .. " from " .. SN.DIR_NAMES[dir + 1])
-    -- Override break durations to 1 min for debug testing
-    siegeData.debugBreakOverride = 1800  -- 1 min at 30fps
-
-    player:Say("[SN] MAX SIEGE! " .. siegeData.targetZombies .. " zombies from " .. SN.DIR_NAMES[dir + 1] .. " (1min breaks)")
+    -- Always route through server command handler (works in both SP and MP).
+    -- The server handler calls enterGlobalActiveState() which properly creates
+    -- clusters, sets siegeTrigger, and initializes wave structures.
+    -- The old SP direct-modify path skipped all of that, causing:
+    --   1) No clusters -> nothing spawns -> instant IDLE
+    --   2) No siegeTrigger -> dawn fallback fires during daytime
+    sendClientCommand(player, SN.CLIENT_MODULE, "CmdDebugForceFullSiege", {})
+    player:Say("[SN] Forcing full siege...")
 end
 
 -- ==========================================

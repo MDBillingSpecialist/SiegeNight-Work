@@ -50,12 +50,13 @@ local syncRetryCount = 0
 SN._clientRealtime = {
     waveIndex = 0,
     totalWaves = 0,
-    phase = SN.PHASE_WAVE,
+    phase = SN.PHASE_SURGE,
     spawnedThisSiege = 0,
     killsThisSiege = 0,
     bonusKills = 0,
     specialKills = 0,
     targetZombies = 0,
+    state = SN.STATE_IDLE,  -- current siege state (updated by StateChange, more reliable than ModData)
     active = false,  -- true when we have command-sourced data
 }
 
@@ -117,13 +118,9 @@ local BREAK_SPEECHES = {
 local warningEmitter = nil
 
 local function playSound(soundName, fallback)
-    local sm = getSoundManager()
-    if not sm then return nil end
-    local emitter = sm:PlaySound(soundName, false, 0)
-    if not emitter and fallback then
-        emitter = sm:PlaySound(fallback, false, 0)
-    end
-    return emitter
+    -- All custom sounds disabled — no .ogg files shipped yet.
+    -- When we add real sound assets, remove this early return.
+    return nil
 end
 
 local function playSiegeHorn()
@@ -161,11 +158,8 @@ local function stopWarningAmbience()
 end
 
 local function startWarningAmbience()
+    -- Disabled — no custom sound assets shipped yet.
     stopWarningAmbience()
-    local sm = getSoundManager()
-    if not sm then return end
-    warningEmitter = sm:PlaySound("SN_Warning", false, 0)
-    -- SN_Warning is defined as loop=true in script, so it loops automatically
 end
 
 -- ==========================================
@@ -231,6 +225,10 @@ local DAWN_FALLBACK_SPEECHES = {
 }
 
 local clientDawnFallback = false
+
+local function hasArg(args, key)
+    return args ~= nil and args[key] ~= nil
+end
 
 local function onEnterDawn()
     SN.log("Client: Siege ended!" .. (clientDawnFallback and " (dawn fallback)" or ""))
@@ -311,22 +309,23 @@ local function onServerCommand(module, command, args)
 
     if command == "StateChange" then
         local newState = args["state"]
-        if args["siegeCount"] then clientSiegeCount = args["siegeCount"] end
-        if args["direction"] then clientDirection = args["direction"] end
-        if args["killsThisSiege"] then clientKills = args["killsThisSiege"] end
-        if args["bonusKills"] then clientBonusKills = args["bonusKills"] end
-        if args["specialKills"] then clientSpecialKills = args["specialKills"] end
-        if args["totalWaves"] then clientTotalWaves = args["totalWaves"] end
-        if args["dawnFallback"] then clientDawnFallback = args["dawnFallback"] end
-        -- Update realtime tracker
+        if hasArg(args, "siegeCount") then clientSiegeCount = args["siegeCount"] end
+        if hasArg(args, "direction") then clientDirection = args["direction"] end
+        if hasArg(args, "killsThisSiege") then clientKills = args["killsThisSiege"] end
+        if hasArg(args, "bonusKills") then clientBonusKills = args["bonusKills"] end
+        if hasArg(args, "specialKills") then clientSpecialKills = args["specialKills"] end
+        if hasArg(args, "totalWaves") then clientTotalWaves = args["totalWaves"] end
+        if hasArg(args, "dawnFallback") then clientDawnFallback = args["dawnFallback"] end
+        -- Update realtime tracker (always track state so panel doesn't depend on ModData for state)
         local rt = SN._clientRealtime
+        rt.state = newState
         if newState == SN.STATE_ACTIVE then
-            if args["totalWaves"] then rt.totalWaves = args["totalWaves"] end
-            if args["targetZombies"] then rt.targetZombies = args["targetZombies"] end
+            if hasArg(args, "totalWaves") then rt.totalWaves = args["totalWaves"] end
+            if hasArg(args, "targetZombies") then rt.targetZombies = args["targetZombies"] end
             -- Only reset counters on fresh siege start (not on duplicate StateChange from reconnect)
             if not rt.active then
                 rt.waveIndex = 1
-                rt.phase = SN.PHASE_WAVE
+                rt.phase = SN.PHASE_SURGE
                 rt.spawnedThisSiege = 0
                 rt.killsThisSiege = 0
                 rt.bonusKills = 0
@@ -334,9 +333,9 @@ local function onServerCommand(module, command, args)
             end
             rt.active = true
         elseif newState == SN.STATE_DAWN or newState == SN.STATE_IDLE then
-            if args["killsThisSiege"] then rt.killsThisSiege = args["killsThisSiege"] end
-            if args["bonusKills"] then rt.bonusKills = args["bonusKills"] end
-            if args["specialKills"] then rt.specialKills = args["specialKills"] end
+            if hasArg(args, "killsThisSiege") then rt.killsThisSiege = args["killsThisSiege"] end
+            if hasArg(args, "bonusKills") then rt.bonusKills = args["bonusKills"] end
+            if hasArg(args, "specialKills") then rt.specialKills = args["specialKills"] end
             -- Keep active until IDLE so dawn summary panel still shows data
             if newState == SN.STATE_IDLE then rt.active = false end
         end
@@ -351,7 +350,7 @@ local function onServerCommand(module, command, args)
         local rt = SN._clientRealtime
         rt.waveIndex = waveIdx
         rt.totalWaves = totalW
-        rt.phase = SN.PHASE_WAVE
+        rt.phase = SN.PHASE_SURGE
         local player = getPlayer()
         if player then
             player:Say("Wave " .. waveIdx .. " of " .. totalW .. "!")
@@ -359,14 +358,14 @@ local function onServerCommand(module, command, args)
         playWaveIncoming()
         playSiegeHorn()
 
-    elseif command == "WaveBreak" then
+    elseif command == "WaveBreak" or command == "WaveCooldown" then
         local waveIdx = args["waveIndex"] or 0
         local breakSeconds = args["breakSeconds"] or 0
         clientCurrentWave = waveIdx
         -- Update realtime tracker (authoritative over ModData)
         local rt = SN._clientRealtime
         rt.waveIndex = waveIdx
-        rt.phase = SN.PHASE_BREAK
+        rt.phase = SN.PHASE_COOLDOWN
         playWaveBreak()
         local player = getPlayer()
         if player then
@@ -412,30 +411,30 @@ local function onServerCommand(module, command, args)
             siegeData = ModData.getOrCreate("SiegeNight")
             SN._worldData = siegeData
         end
-        if args["siegeState"] then siegeData.siegeState = args["siegeState"] end
-        if args["siegeCount"] then siegeData.siegeCount = args["siegeCount"] end
-        if args["nextSiegeDay"] then siegeData.nextSiegeDay = args["nextSiegeDay"] end
-        if args["totalSiegesCompleted"] then siegeData.totalSiegesCompleted = args["totalSiegesCompleted"] end
-        if args["totalKillsAllTime"] then siegeData.totalKillsAllTime = args["totalKillsAllTime"] end
-        if args["killsThisSiege"] then siegeData.killsThisSiege = args["killsThisSiege"] end
-        if args["bonusKills"] then siegeData.bonusKills = args["bonusKills"] end
-        if args["specialKillsThisSiege"] then siegeData.specialKillsThisSiege = args["specialKillsThisSiege"] end
-        if args["spawnedThisSiege"] then siegeData.spawnedThisSiege = args["spawnedThisSiege"] end
-        if args["targetZombies"] then siegeData.targetZombies = args["targetZombies"] end
-        if args["lastDirection"] then siegeData.lastDirection = args["lastDirection"] end
-        if args["currentWaveIndex"] then siegeData.currentWaveIndex = args["currentWaveIndex"] end
-        if args["currentPhase"] then siegeData.currentPhase = args["currentPhase"] end
+        if hasArg(args, "siegeState") then siegeData.siegeState = args["siegeState"] end
+        if hasArg(args, "siegeCount") then siegeData.siegeCount = args["siegeCount"] end
+        if hasArg(args, "nextSiegeDay") then siegeData.nextSiegeDay = args["nextSiegeDay"] end
+        if hasArg(args, "totalSiegesCompleted") then siegeData.totalSiegesCompleted = args["totalSiegesCompleted"] end
+        if hasArg(args, "totalKillsAllTime") then siegeData.totalKillsAllTime = args["totalKillsAllTime"] end
+        if hasArg(args, "killsThisSiege") then siegeData.killsThisSiege = args["killsThisSiege"] end
+        if hasArg(args, "bonusKills") then siegeData.bonusKills = args["bonusKills"] end
+        if hasArg(args, "specialKillsThisSiege") then siegeData.specialKillsThisSiege = args["specialKillsThisSiege"] end
+        if hasArg(args, "spawnedThisSiege") then siegeData.spawnedThisSiege = args["spawnedThisSiege"] end
+        if hasArg(args, "targetZombies") then siegeData.targetZombies = args["targetZombies"] end
+        if hasArg(args, "lastDirection") then siegeData.lastDirection = args["lastDirection"] end
+        if hasArg(args, "currentWaveIndex") then siegeData.currentWaveIndex = args["currentWaveIndex"] end
+        if hasArg(args, "currentPhase") then siegeData.currentPhase = args["currentPhase"] end
         -- Sync history entries
         local totalCompleted = args["totalSiegesCompleted"] or 0
         for idx = 1, totalCompleted do
             local prefix = "history_" .. idx .. "_"
-            if args[prefix .. "kills"] then siegeData[prefix .. "kills"] = args[prefix .. "kills"] end
-            if args[prefix .. "bonus"] then siegeData[prefix .. "bonus"] = args[prefix .. "bonus"] end
-            if args[prefix .. "specials"] then siegeData[prefix .. "specials"] = args[prefix .. "specials"] end
-            if args[prefix .. "spawned"] then siegeData[prefix .. "spawned"] = args[prefix .. "spawned"] end
-            if args[prefix .. "target"] then siegeData[prefix .. "target"] = args[prefix .. "target"] end
-            if args[prefix .. "day"] then siegeData[prefix .. "day"] = args[prefix .. "day"] end
-            if args[prefix .. "dir"] then siegeData[prefix .. "dir"] = args[prefix .. "dir"] end
+            if hasArg(args, prefix .. "kills") then siegeData[prefix .. "kills"] = args[prefix .. "kills"] end
+            if hasArg(args, prefix .. "bonus") then siegeData[prefix .. "bonus"] = args[prefix .. "bonus"] end
+            if hasArg(args, prefix .. "specials") then siegeData[prefix .. "specials"] = args[prefix .. "specials"] end
+            if hasArg(args, prefix .. "spawned") then siegeData[prefix .. "spawned"] = args[prefix .. "spawned"] end
+            if hasArg(args, prefix .. "target") then siegeData[prefix .. "target"] = args[prefix .. "target"] end
+            if hasArg(args, prefix .. "day") then siegeData[prefix .. "day"] = args[prefix .. "day"] end
+            if hasArg(args, prefix .. "dir") then siegeData[prefix .. "dir"] = args[prefix .. "dir"] end
         end
         SN.log("Received full stats sync from server: siegeCount=" .. (args["siegeCount"] or "?")
             .. " totalCompleted=" .. (args["totalSiegesCompleted"] or "?")
@@ -443,16 +442,16 @@ local function onServerCommand(module, command, args)
             .. " nextSiegeDay=" .. (args["nextSiegeDay"] or "?"))
         -- Update realtime tracker from full sync
         local rt = SN._clientRealtime
-        if args["currentWaveIndex"] then rt.waveIndex = args["currentWaveIndex"] end
-        if args["currentPhase"] then rt.phase = args["currentPhase"] end
-        if args["spawnedThisSiege"] then rt.spawnedThisSiege = args["spawnedThisSiege"] end
-        if args["killsThisSiege"] then rt.killsThisSiege = args["killsThisSiege"] end
-        if args["bonusKills"] then rt.bonusKills = args["bonusKills"] end
-        if args["specialKillsThisSiege"] then rt.specialKills = args["specialKillsThisSiege"] end
-        if args["targetZombies"] then rt.targetZombies = args["targetZombies"] end
-        if args["siegeState"] == SN.STATE_ACTIVE then rt.active = true end
-        -- Also sync client state
-        if args["siegeState"] then
+        if hasArg(args, "currentWaveIndex") then rt.waveIndex = args["currentWaveIndex"] end
+        if hasArg(args, "currentPhase") then rt.phase = args["currentPhase"] end
+        if hasArg(args, "spawnedThisSiege") then rt.spawnedThisSiege = args["spawnedThisSiege"] end
+        if hasArg(args, "killsThisSiege") then rt.killsThisSiege = args["killsThisSiege"] end
+        if hasArg(args, "bonusKills") then rt.bonusKills = args["bonusKills"] end
+        if hasArg(args, "specialKillsThisSiege") then rt.specialKills = args["specialKillsThisSiege"] end
+        if hasArg(args, "targetZombies") then rt.targetZombies = args["targetZombies"] end
+        if hasArg(args, "siegeState") then
+            rt.state = args["siegeState"]
+            if args["siegeState"] == SN.STATE_ACTIVE then rt.active = true end
             syncClientState(args["siegeState"])
         end
 
@@ -460,13 +459,13 @@ local function onServerCommand(module, command, args)
         -- Periodic real-time update from server (more reliable than ModData.transmit)
         local rt = SN._clientRealtime
         rt.active = true
-        if args["spawnedThisSiege"] then rt.spawnedThisSiege = args["spawnedThisSiege"] end
-        if args["killsThisSiege"] then rt.killsThisSiege = args["killsThisSiege"] end
-        if args["bonusKills"] then rt.bonusKills = args["bonusKills"] end
-        if args["specialKills"] then rt.specialKills = args["specialKills"] end
-        if args["currentWaveIndex"] then rt.waveIndex = args["currentWaveIndex"] end
-        if args["currentPhase"] then rt.phase = args["currentPhase"] end
-        if args["targetZombies"] then rt.targetZombies = args["targetZombies"] end
+        if hasArg(args, "spawnedThisSiege") then rt.spawnedThisSiege = args["spawnedThisSiege"] end
+        if hasArg(args, "killsThisSiege") then rt.killsThisSiege = args["killsThisSiege"] end
+        if hasArg(args, "bonusKills") then rt.bonusKills = args["bonusKills"] end
+        if hasArg(args, "specialKills") then rt.specialKills = args["specialKills"] end
+        if hasArg(args, "currentWaveIndex") then rt.waveIndex = args["currentWaveIndex"] end
+        if hasArg(args, "currentPhase") then rt.phase = args["currentPhase"] end
+        if hasArg(args, "targetZombies") then rt.targetZombies = args["targetZombies"] end
 
     elseif command == "MiniHorde" then
         local count = args["count"] or 0
@@ -487,14 +486,7 @@ local function onServerCommand(module, command, args)
             SN.log("Server: " .. msg)
         end
 
-    elseif command == "CmdResponse" then
-        -- Legacy response format
-        local msg = args["message"]
-        if msg then
-            local player = getPlayer()
-            if player then player:Say("[SN] " .. msg) end
-            SN.log("Server response: " .. msg)
-        end
+    -- CmdResponse is handled by SiegeNight_Commands.lua (avoids duplicate display)
     end
 end
 
@@ -539,7 +531,7 @@ local function onTick()
             if siegeData.siegeState == SN.STATE_ACTIVE then
                 local newWave = siegeData.currentWaveIndex or 0
                 if newWave ~= clientCurrentWave and newWave > 0 then
-                    local totalW = math.max(3, math.min(7, math.floor((siegeData.targetZombies or 75) / 60) + 2))
+                    local totalW = SN.getWaveCountForTotal(siegeData.targetZombies or 75)
 
                     if clientCurrentWave > 0 then
                         player:Say("Wave " .. newWave .. " of " .. totalW .. "!")

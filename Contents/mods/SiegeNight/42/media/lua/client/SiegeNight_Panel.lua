@@ -37,9 +37,9 @@ local function ensureAddCharacterPageTab()
             orig_createChildren(self)
             self[viewName] = pageType:new(0, 8, self.width, self.height - 8, self.playerNum)
             self[viewName]:initialise()
-            local panelText = getText("UI_" .. tabName .. "Panel") or "Siege Night status"
+            local panelText = getUIText("UI_" .. tabName .. "Panel", "Siege Night status")
             self[viewName].infoText = panelText
-            local tabText = getText("UI_" .. tabName) or "Siege"
+            local tabText = getUIText("UI_" .. tabName, "Siege")
             self.panel:addView(tabText, self[viewName])
         end
 
@@ -117,6 +117,13 @@ local C_BLUE    = {r=0.5, g=0.7, b=1.0}
 -- ==========================================
 -- HELPERS
 -- ==========================================
+local function getUIText(key, fallback)
+    local text = getText(key)
+    if text == nil or text == "" or text == key then
+        return fallback
+    end
+    return text
+end
 
 --- Pick realtime value over ModData. Can't use Lua and/or idiom because 0 is falsy!
 --- @param useRT boolean whether realtime data is active
@@ -157,7 +164,12 @@ function ISSiegeNightPanel:render()
     end
 
     -- ---- CURRENT STATUS ----
+    -- Prefer realtime state in MP (StateChange arrives instantly; ModData can lag)
     local state = siegeData.siegeState or SN.STATE_IDLE
+    local rt = SN._clientRealtime
+    if isClient() and rt and rt.state then
+        state = rt.state
+    end
     local stateColor = C_GREY
     local stateLabel = "Idle"
     if state == SN.STATE_WARNING then
@@ -206,7 +218,7 @@ function ISSiegeNightPanel:render()
     y = y + fh + 4
 
     -- Client realtime data (prefer over ModData in MP -- ModData can be stale on busy servers)
-    local rt = SN._clientRealtime
+    -- rt already declared above for state
     local useRealtime = rt and rt.active and isClient()
 
     -- ---- ACTIVE SIEGE DETAILS ----
@@ -253,9 +265,8 @@ function ISSiegeNightPanel:render()
         local phase = rtVal(useRealtime, rt.phase, siegeData.currentPhase)
         if phase == 0 then phase = "?" end
         local phaseColor = C_WHITE
-        if phase == SN.PHASE_WAVE then phaseColor = C_RED
-        elseif phase == SN.PHASE_TRICKLE then phaseColor = C_ORANGE
-        elseif phase == SN.PHASE_BREAK then phaseColor = C_GREEN
+        if phase == SN.PHASE_SURGE or phase == "BURST" then phaseColor = C_RED
+        elseif phase == SN.PHASE_COOLDOWN or phase == "BREAK" then phaseColor = C_ORANGE
         end
         self:drawText("Wave:", x, y, C_GREY.r, C_GREY.g, C_GREY.b, 1.0, font)
         self:drawText(tostring(waveIdx), col2, y, C_WHITE.r, C_WHITE.g, C_WHITE.b, 1.0, font)
@@ -437,8 +448,8 @@ local function injectTabIntoExistingWindow()
     -- Create and inject our panel
     local panel = ISSiegeNightPanel:new(0, 8, infoWindow.width, infoWindow.height - 8, playerNum)
     panel:initialise()
-    local tabText = getText("UI_SiegeNight") or "Siege"
-    panel.infoText = getText("UI_SiegeNightPanel") or "Siege Night status"
+    local tabText = getUIText("UI_SiegeNight", "Siege")
+    panel.infoText = getUIText("UI_SiegeNightPanel", "Siege Night status")
     infoWindow.panel:addView(tabText, panel)
     infoWindow[viewName] = panel
 

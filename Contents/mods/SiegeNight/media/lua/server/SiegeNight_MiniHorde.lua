@@ -47,6 +47,34 @@ local activeMiniHordes = {}
 -- that results in dead-but-moving visuals and unlootable corpses. We apply a lightweight sanity tick
 -- to mini-horde zombies while a mini-horde job is active.
 
+-- Strip non-clothing items from a zombie so mini-horde spawns don't drop OP loot.
+local function stripZombieLoot(zombie)
+    if not zombie then return end
+    if not SN.getSandbox("StripSiegeZombieLoot") then return end
+    pcall(function()
+        local inv = zombie:getInventory()
+        if not inv then return end
+        zombie:setPrimaryHandItem(nil)
+        zombie:setSecondaryHandItem(nil)
+        local toRemove = {}
+        local items = inv:getItems()
+        for i = 0, items:size() - 1 do
+            local item = items:get(i)
+            if item then
+                if instanceof(item, "Clothing") then
+                    local sub = item:getItemContainer()
+                    if sub then sub:removeAllItems() end
+                else
+                    table.insert(toRemove, item)
+                end
+            end
+        end
+        for _, item in ipairs(toRemove) do
+            inv:Remove(item)
+        end
+    end)
+end
+
 local function worldAgeSecSafe()
     local w = getWorld()
     if w and w.getWorldAgeDays then
@@ -180,7 +208,11 @@ local function addHeat(worldX, worldY, amount, source)
     if not cellKey then return end
     local data = getHeatData(cellKey)
     if not data then return end
-    data.heat = math.min(100, data.heat + amount)
+    -- Cap heat at threshold + 50 to prevent runaway accumulation
+    -- while still allowing any sandbox threshold setting to be reachable
+    local threshold = SN.getSandboxNumber("MiniHorde_NoiseThreshold", 1, 200) or 80
+    local heatCap = math.max(100, threshold + 50)
+    data.heat = math.min(heatCap, data.heat + amount)
     SN.debug("Heat +" .. amount .. " at " .. cellKey .. " = " .. data.heat)
 end
 
@@ -197,11 +229,75 @@ local function getPlayerList()
         local players = getOnlinePlayers()
         if players then
             for i = 0, players:size() - 1 do
-                table.insert(playerList, players:get(i))
+                local p = players:get(i)
+                if p and p:isAlive() then
+                    table.insert(playerList, p)
+                end
             end
         end
     end
     return playerList
+end
+
+local function getAlivePlayers(players)
+    local alivePlayers = {}
+    for _, player in ipairs(players or {}) do
+        local ok, alive = pcall(function() return player and player:isAlive() end)
+        if ok and alive then
+            table.insert(alivePlayers, player)
+        end
+    end
+    return alivePlayers
+end
+
+local function pickNearestPlayer(players, x, y)
+    local bestPlayer = nil
+    local bestDist = math.huge
+    for _, player in ipairs(players or {}) do
+        local ok, px, py = pcall(function()
+            if not player or not player:isAlive() then return nil, nil end
+            return player:getX(), player:getY()
+        end)
+        if ok and px and py then
+            local dx = x - px
+            local dy = y - py
+            local dist = dx * dx + dy * dy
+            if dist < bestDist then
+                bestDist = dist
+                bestPlayer = player
+            end
+        end
+    end
+    return bestPlayer
+end
+
+local function getPlayersNearPoint(players, x, y, radius)
+    local nearby = {}
+    local maxDist2 = (radius or 200) * (radius or 200)
+    for _, player in ipairs(getAlivePlayers(players)) do
+        local px, py = player:getX(), player:getY()
+        local dx = x - px
+        local dy = y - py
+        if (dx * dx + dy * dy) <= maxDist2 then
+            table.insert(nearby, player)
+        end
+    end
+    return nearby
+end
+
+local function getActiveJobPlayers(job)
+    job.players = getAlivePlayers(job.players or {})
+    if #job.players == 0 and job.player then
+        job.players = getAlivePlayers({ job.player })
+    end
+    job.player = job.players[1]
+    if not job.playerCursor or job.playerCursor < 1 then
+        job.playerCursor = 1
+    end
+    if #job.players > 0 and job.playerCursor > #job.players then
+        job.playerCursor = ((job.playerCursor - 1) % #job.players) + 1
+    end
+    return job.players
 end
 
 -- ==========================================
@@ -212,6 +308,10 @@ local function onWeaponSwing(character, handWeapon)
     if not SN or not SN.getSandbox or not SN.getSandbox("MiniHorde_Enabled") then return end
     if not handWeapon then return end
     if not character then return end
+
+    -- Skip ALL heat while a mini-horde is actively spawning (prevents feedback loop:
+    -- shooting mini-horde zombies should not generate heat for the next mini-horde)
+    if activeMiniHordes and #activeMiniHordes > 0 then return end
 
     local scriptItem = handWeapon:getScriptItem()
     if scriptItem and scriptItem:getAmmoType() then
@@ -229,17 +329,11 @@ local function onHitZombie(zombie, character, bodyPartType, handWeapon)
     if not character then return end
     if not instanceof(character, "IsoPlayer") then return end
 
-    -- Don't count kills of mini-horde zombies as heat (prevents feedback loop)
-    local zmd = zombie and zombie:getModData()
-    if zmd and zmd.SN_MiniHorde then return end
+    -- Skip ALL heat while a mini-horde is active (prevents feedback loop)
+    if activeMiniHordes and #activeMiniHordes > 0 then return end
 
-    local px, py = character:getX(), character:getY()
-    if type(px) ~= "number" or type(py) ~= "number" then return end
-
-    local cellKey = getCellKey(px, py)
-    if cellKey then
-        recentKills[cellKey] = (recentKills[cellKey] or 0) + 1
-    end
+    -- Hits are not kills. Keep this hook only as a guardrail entry point.
+    -- Real kill heat is counted in onMiniHordeZombieDead.
 end
 
 local triggerMiniHorde
@@ -263,6 +357,18 @@ local function onEveryTenMinutes()
     end
 
     local playerList = getPlayerList()
+
+    -- INFINITE HORDE FIX: Suppress heat accumulation while a mini-horde is actively
+    -- spawning/fighting. Without this, generators (+15), vehicles (+8), presence (+3)
+    -- etc. keep building heat DURING the fight, so by the time the horde ends the
+    -- heat is already above threshold again — causing an immediate re-trigger loop.
+    if activeMiniHordes and #activeMiniHordes > 0 then
+        -- Still decay heat so it doesn't freeze at threshold
+        for cellKey, data in pairs(heatGrid) do
+            data.heat = math.max(0, data.heat - 8)
+        end
+        return  -- skip all heat accumulation while fighting
+    end
 
     -- Add heat from player activity
     for _, player in ipairs(playerList) do
@@ -327,12 +433,12 @@ local function onEveryTenMinutes()
     local now = gt:getWorldAgeHours()
 
     -- SandboxVars can arrive as strings on some dedi setups; normalize to numbers.
-    local cooldownMinutes = tonumber(SN.getSandbox("MiniHorde_CooldownMinutes"))
+    local cooldownMinutes = SN.getSandboxNumber("MiniHorde_CooldownMinutes", 1, 180) or 30
     if not cooldownMinutes or cooldownMinutes <= 0 then cooldownMinutes = 30 end
     if cooldownMinutes < 1 then cooldownMinutes = 1 end
     local cooldownHours = cooldownMinutes / 60
 
-    local threshold = tonumber(SN.getSandbox("MiniHorde_NoiseThreshold")) or 80
+    local threshold = SN.getSandboxNumber("MiniHorde_NoiseThreshold", 1, 200) or 80
     if threshold < 1 then threshold = 1 end
 
     -- Per-day cap: prevents servers from getting stuck in a mini-horde loop.
@@ -341,36 +447,13 @@ local function onEveryTenMinutes()
         siegeData.miniHordeDay = today
         siegeData.miniHordeTriggersToday = 0
     end
-    local maxPerDay = tonumber(SN.getSandbox("MiniHorde_MaxPerDay")) or 5
+    local maxPerDay = SN.getSandboxNumber("MiniHorde_MaxPerDay", 0, 50) or 5
     if maxPerDay < 0 then maxPerDay = 0 end
-    if maxPerDay > 0 and (siegeData.miniHordeTriggersToday or 0) >= maxPerDay then
-        return
-    end
+    local dailyCapReached = maxPerDay > 0 and (siegeData.miniHordeTriggersToday or 0) >= maxPerDay
 
     -- If a mini-horde is currently spawning, don't trigger another one.
     -- This prevents stacked jobs from looking like "nonstop" hordes even with a sane cooldown.
-    if activeMiniHordes and #activeMiniHordes > 0 then
-        return
-    end
-
-    -- Daily hard cap: reset counter at midnight (new day), then enforce limit.
-    local currentDay = math.floor(now / 24)
-    if (siegeData.miniHordeDay or -1) ~= currentDay then
-        siegeData.miniHordeDay = currentDay
-        siegeData.miniHordesToday = 0
-    end
-    local maxPerDay = tonumber(SN.getSandbox("MiniHorde_MaxPerDay")) or 5
-    if maxPerDay < 1 then maxPerDay = 1 end
-    if (siegeData.miniHordesToday or 0) >= maxPerDay then
-        -- Daily limit reached; still decay heat but don't trigger.
-        for cellKey, data in pairs(heatGrid) do
-            data.heat = math.max(0, data.heat - 8)
-            if data.heat <= 0 and (now - data.lastTrigger) > cooldownHours then
-                heatGrid[cellKey] = nil
-            end
-        end
-        return
-    end
+    local activeJobRunning = activeMiniHordes and #activeMiniHordes > 0
 
     -- GLOBAL cooldown (MP): prevent large servers from triggering mini-hordes every tick
     -- just because players are spread across many heat cells.
@@ -381,13 +464,12 @@ local function onEveryTenMinutes()
         -- Per-cell grace period
         local inGrace = (now - data.lastTrigger) < cooldownHours
 
-        if (not inGlobalGrace) and (not inGrace) and data.heat >= threshold then
+        if (not dailyCapReached) and (not activeJobRunning) and (not inGlobalGrace) and (not inGrace) and data.heat >= threshold then
             triggerMiniHorde(cellKey, data, playerList)
             siegeData.miniHordeTriggersToday = (siegeData.miniHordeTriggersToday or 0) + 1
             data.heat = 0
             data.lastTrigger = now
             siegeData.miniHordeLastTrigger = now
-            siegeData.miniHordesToday = (siegeData.miniHordesToday or 0) + 1
             globalLast = now
             inGlobalGrace = true
         end
@@ -424,28 +506,20 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
     local cellCenterX = parts[1] * CELL_SIZE + CELL_SIZE / 2
     local cellCenterY = parts[2] * CELL_SIZE + CELL_SIZE / 2
 
-    local nearestPlayer = nil
-    local nearestDist = math.huge
-
-    for _, player in ipairs(playerList) do
-        if player and player:isAlive() then
-            local px, py = player:getX(), player:getY()
-            if type(px) == "number" and type(py) == "number" then
-                local dist = math.sqrt((px - cellCenterX)^2 + (py - cellCenterY)^2)
-                if dist < nearestDist then
-                    nearestDist = dist
-                    nearestPlayer = player
-                end
-            end
-        end
-    end
+    local nearestPlayer = pickNearestPlayer(playerList, cellCenterX, cellCenterY)
 
     if not nearestPlayer then return end
 
+    local groupRadius = math.max(CELL_SIZE, SN.getSandboxNumber("SharedSpawnRadius", 50, 500) or 200)
+    local targetPlayers = getPlayersNearPoint(playerList, nearestPlayer:getX(), nearestPlayer:getY(), groupRadius)
+    if #targetPlayers <= 0 then
+        targetPlayers = { nearestPlayer }
+    end
+
     -- Calculate horde size with player scaling
     local heatRatio = math.min(1.0, heatData.heat / 100)
-    local minZ = tonumber(SN.getSandbox("MiniHorde_MinZombies")) or 10
-    local maxZ = tonumber(SN.getSandbox("MiniHorde_MaxZombies")) or 60
+    local minZ = SN.getSandboxNumber("MiniHorde_MinZombies", 1, 200) or 10
+    local maxZ = SN.getSandboxNumber("MiniHorde_MaxZombies", 1, 200) or 60
     if maxZ < minZ then maxZ = minZ end
 
     local count = minZ
@@ -455,7 +529,7 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
 
     -- Player count scaling: more players = bigger mini-horde
     if SN.getSandbox("MiniHorde_PlayerScaling") then
-        count = math.floor(count * math.max(1, #playerList * 0.75))
+        count = math.floor(count * SN.getMiniHordePlayerScale(#targetPlayers))
     end
 
     -- IMPORTANT: MiniHorde_MaxZombies is treated as an absolute cap.
@@ -464,9 +538,9 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
 
     local dir = ZombRand(8)
     SN.log("MINI-HORDE triggered! " .. count .. " zombies at cell " .. cellKey
-        .. " (heat: " .. heatData.heat .. ", players: " .. #playerList
+        .. " (heat: " .. heatData.heat .. ", localPlayers: " .. #targetPlayers
         .. ", cap: " .. tostring(maxZ)
-        .. ", cooldownMin: " .. tostring(tonumber(SN.getSandbox("MiniHorde_CooldownMinutes")) or 30)
+        .. ", cooldownMin: " .. tostring(SN.getSandboxNumber("MiniHorde_CooldownMinutes", 1, 180) or 30)
         .. ")")
 
     -- Notify client(s)
@@ -483,6 +557,9 @@ triggerMiniHorde = function(cellKey, heatData, playerList)
     -- Create staggered spawn job with zombie tracking for repath convergence
     table.insert(activeMiniHordes, {
         player = nearestPlayer,
+        players = targetPlayers,
+        playerCursor = 1,
+        cellKey = cellKey,  -- track origin cell for scoped heat reset on completion
         remaining = count,
         tickCounter = 0,
         spawnInterval = 8,  -- faster spawn rate than before
@@ -518,8 +595,9 @@ local function onMiniHordeTick()
         -- ========== SPAWN PHASE (batch of 3 per tick) ==========
         if job.tickCounter <= 0 and job.remaining > 0 then
             job.tickCounter = job.spawnInterval
+            local activePlayers = getActiveJobPlayers(job)
 
-            if job.player and job.player:isAlive() then
+            if #activePlayers > 0 then
                 -- SP: announce via Say() on first spawn
                 if not job.announced then
                     local isSP = not isServer() and not isClient()
@@ -530,18 +608,23 @@ local function onMiniHordeTick()
                     job.announced = true
                 end
 
-                local px = job.player:getX()
-                local py = job.player:getY()
+                local targetPlayer = activePlayers[job.playerCursor] or activePlayers[1]
+                job.player = targetPlayer
+                local px = targetPlayer:getX()
+                local py = targetPlayer:getY()
                 if type(px) ~= "number" or type(py) ~= "number" then
                     job.remaining = 0
                 else
-                    local spawnDist = SN.getSandbox("SpawnDistance")
-                    local batchSize = math.min(3, job.remaining)
+                    local spawnDist = SN.getSandboxNumber("SpawnDistance", 15, 300) or 45
+                    local batchSize = math.min(math.max(2, #activePlayers), job.remaining, 4)
 
                     local batchSpawned = 0
                     for b = 1, batchSize do
                         if job.remaining <= 0 then break end
-                        local spawned = false
+                        targetPlayer = activePlayers[job.playerCursor] or activePlayers[1]
+                        job.player = targetPlayer
+                        px = targetPlayer:getX()
+                        py = targetPlayer:getY()
                         for attempt = 0, 30 do
                             local dir = job.direction
                             local baseX = px + SN.DIR_X[dir + 1] * spawnDist
@@ -552,7 +635,9 @@ local function onMiniHordeTick()
                             local fx = math.floor(baseX + perpX * spread)
                             local fy = math.floor(baseY + perpY * spread)
 
-                            local square = getWorld():getCell():getGridSquare(fx, fy, 0)
+                            local w = getWorld()
+                            local cell = w and w:getCell() or nil
+                            local square = cell and cell:getGridSquare(fx, fy, 0) or nil
                             if square and square:isFree(false) and square:isOutside() and not isInsidePlayerArea(square) then
                                 local outfit = SN.ZOMBIE_OUTFITS[ZombRand(#SN.ZOMBIE_OUTFITS) + 1]
                                 local ok, zombies = pcall(addZombiesInOutfit, fx, fy, 0, 1, outfit, 50, false, false, false, false, false, false, 1.0)
@@ -561,33 +646,38 @@ local function onMiniHordeTick()
                                 end
                                 if ok and zombies and zombies:size() > 0 then
                                     local zombie = zombies:get(0)
-                                    local p = job.player
+                                    stripZombieLoot(zombie)
+                                    local p = targetPlayer
                                     pcall(function()
-                                        zombie:pathToSound(px, py, 0)
+                                        if isServer() then zombie:pathToCharacter(p) end
                                         zombie:setTarget(p)
                                         zombie:setAttackedBy(p)
                                         zombie:spottedNew(p, true)
-                                        zombie:addAggro(p, 1)
+                                        zombie:addAggro(p, 2)
                                     end)
                                     zombie:getModData().SN_MiniHorde = true
                                     table.insert(job.zombieList, zombie)
                                     batchSpawned = batchSpawned + 1
                                 end
                                 job.remaining = job.remaining - 1
-                                spawned = true
+                                if #activePlayers > 0 then
+                                    job.playerCursor = (job.playerCursor % #activePlayers) + 1
+                                end
                                 break
                             end
                         end
                     end
                     -- One attractor sound per batch (not per zombie)
                     if batchSpawned > 0 then
-                        pcall(function()
-                            getWorldSoundManager():addSound(job.player, math.floor(px), math.floor(py), 0, 80, 80)
-                        end)
+                        for _, player in ipairs(activePlayers) do
+                            pcall(function()
+                                getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 80, 80)
+                            end)
+                        end
                     end
                 end
             else
-                -- Player dead/gone, cancel remaining spawns
+                -- Group gone, cancel remaining spawns
                 job.remaining = 0
             end
 
@@ -599,35 +689,34 @@ local function onMiniHordeTick()
         -- ========== REPATH PHASE (every 5 seconds, same as siege) ==========
         if job.repathTick >= MH_REPATH_INTERVAL then
             job.repathTick = 0
-            local p = job.player
-            if p and p:isAlive() then
-                -- Player alive check passed - getX/getY safe without pcall
-                local pX, pY = p:getX(), p:getY()
-                if type(pX) == "number" and type(pY) == "number" then
-                    -- Step 1: Prune dead spawned zombies first
-                    local alive = {}
-                    for _, zombie in ipairs(job.zombieList) do
-                        local okD, dead = pcall(function() return zombie:isDead() end)
-                        if okD and not dead then
-                            table.insert(alive, zombie)
-                        end
+            local activePlayers = getActiveJobPlayers(job)
+            if #activePlayers > 0 then
+                -- Step 1: Prune dead spawned zombies first
+                local alive = {}
+                for _, zombie in ipairs(job.zombieList) do
+                    local okD, dead = pcall(function() return zombie:isDead() end)
+                    if okD and not dead then
+                        table.insert(alive, zombie)
                     end
-                    job.zombieList = alive
+                end
+                job.zombieList = alive
 
-                    -- Step 2: Only attract + repath if kill counter hasn't been reached.
-                    -- Player can kill ANY zombies (spawned or attracted roamers) to hit
-                    -- the counter. Once killCount >= totalToSpawn, attractor stops.
-                    if (job.killCount or 0) < (job.totalToSpawn or 0) then
+                -- Step 2: Only attract + repath if kill counter hasn't been reached.
+                if (job.killCount or 0) < (job.totalToSpawn or 0) then
+                    for _, player in ipairs(activePlayers) do
                         pcall(function()
-                            getWorldSoundManager():addSound(p, math.floor(pX), math.floor(pY), 0, 80, 80)
+                            getWorldSoundManager():addSound(player, math.floor(player:getX()), math.floor(player:getY()), 0, 80, 80)
                         end)
-                        for _, zombie in ipairs(alive) do
+                    end
+                    for _, zombie in ipairs(alive) do
+                        local targetPlayer = pickNearestPlayer(activePlayers, zombie:getX(), zombie:getY()) or activePlayers[1]
+                        if targetPlayer then
                             pcall(function()
-                                zombie:pathToSound(pX, pY, 0)
-                                zombie:setTarget(p)
-                                zombie:setAttackedBy(p)
-                                zombie:spottedNew(p, true)
-                                zombie:addAggro(p, 1)
+                                if isServer() then zombie:pathToCharacter(targetPlayer) end
+                                zombie:setTarget(targetPlayer)
+                                zombie:setAttackedBy(targetPlayer)
+                                zombie:spottedNew(targetPlayer, true)
+                                zombie:addAggro(targetPlayer, 1)
                             end)
                         end
                     end
@@ -636,9 +725,30 @@ local function onMiniHordeTick()
         end
 
         -- ========== CLEANUP ==========
-        -- Job is done when spawning is finished AND kill counter reached (or all tracked dead)
-        if job.remaining <= 0 and ((job.killCount or 0) >= (job.totalToSpawn or 0) or #job.zombieList == 0) then
-            SN.log("Mini-horde complete (kills: " .. (job.killCount or 0) .. "/" .. (job.totalToSpawn or 0) .. ")")
+        -- Job is done when spawning is finished AND (kill counter reached OR all tracked dead OR no players left)
+        local noPlayersLeft = #getActiveJobPlayers(job) == 0
+        if job.remaining <= 0 and ((job.killCount or 0) >= (job.totalToSpawn or 0) or #job.zombieList == 0 or noPlayersLeft) then
+            SN.log("Mini-horde complete (kills: " .. (job.killCount or 0) .. "/" .. (job.totalToSpawn or 0) .. (noPlayersLeft and ", no players left" or "") .. ")")
+            -- Reset heat in the horde's origin cell to prevent the fight itself
+            -- from immediately triggering the next mini-horde (feedback loop fix)
+            if job.cellKey and heatGrid[job.cellKey] then
+                heatGrid[job.cellKey].heat = 0
+            end
+            -- INFINITE HORDE FIX: Update global cooldown to start from horde END,
+            -- not horde START. Previously cooldown was set at trigger time, so by the
+            -- time a 5-minute fight ended, the 30-minute cooldown was already 5 min in.
+            -- Now the full cooldown runs AFTER the fight finishes.
+            local siegeData = SN.getWorldData()
+            if siegeData then
+                local gt = getGameTime()
+                if gt then
+                    siegeData.miniHordeLastTrigger = gt:getWorldAgeHours()
+                end
+                -- Also reset per-cell cooldown to start from fight end
+                if job.cellKey and heatGrid[job.cellKey] then
+                    heatGrid[job.cellKey].lastTrigger = siegeData.miniHordeLastTrigger or 0
+                end
+            end
             table.remove(activeMiniHordes, i)
         end
     end
@@ -668,6 +778,8 @@ function SN.debugForceMiniHorde(player)
     -- Create a proper staggered spawn job with repath tracking
     table.insert(activeMiniHordes, {
         player = player,
+        players = { player },
+        playerCursor = 1,
         remaining = count,
         tickCounter = 0,
         spawnInterval = 8,
@@ -692,22 +804,48 @@ end
 -- kill ANY 22 zombies (spawned or attracted roamers) and the attractor stops.
 
 local function onMiniHordeZombieDead(zombie)
-    if #activeMiniHordes == 0 then return end
     local zx, zy
     local okZ = pcall(function() zx = zombie:getX(); zy = zombie:getY() end)
     if not okZ or not zx then return end
 
+    local zmd = zombie and zombie:getModData()
+    if not (zmd and zmd.SN_MiniHorde) and not (activeMiniHordes and #activeMiniHordes > 0) then
+        local closestPlayer = nil
+        local closestDist = math.huge
+        local players = getPlayerList()
+        for _, player in ipairs(players) do
+            local px, py = player:getX(), player:getY()
+            local dx = zx - px
+            local dy = zy - py
+            local dist = dx * dx + dy * dy
+            if dist < closestDist then
+                closestDist = dist
+                closestPlayer = player
+            end
+        end
+        if closestPlayer and closestDist <= (CELL_SIZE * CELL_SIZE) then
+            local cellKey = getCellKey(closestPlayer:getX(), closestPlayer:getY())
+            if cellKey then
+                recentKills[cellKey] = (recentKills[cellKey] or 0) + 1
+            end
+        end
+    end
+
+    if #activeMiniHordes == 0 then return end
+
     for _, job in ipairs(activeMiniHordes) do
-        if job.player and job.player:isAlive() and job.totalToSpawn and (job.killCount or 0) < job.totalToSpawn then
-            local px, py = job.player:getX(), job.player:getY()
-            if px and py then
-                local dist = math.abs(zx - px) + math.abs(zy - py)
-                if dist < 100 then
-                    job.killCount = (job.killCount or 0) + 1
-                    if job.killCount >= job.totalToSpawn then
-                        SN.log("Mini-horde kill target reached (" .. job.killCount .. "/" .. job.totalToSpawn .. ") - attractor stopped")
+        if job.totalToSpawn and (job.killCount or 0) < job.totalToSpawn then
+            for _, player in ipairs(getActiveJobPlayers(job)) do
+                local px, py = player:getX(), player:getY()
+                if px and py then
+                    local dist = math.abs(zx - px) + math.abs(zy - py)
+                    if dist < 100 then
+                        job.killCount = (job.killCount or 0) + 1
+                        if job.killCount >= job.totalToSpawn then
+                            SN.log("Mini-horde kill target reached (" .. job.killCount .. "/" .. job.totalToSpawn .. ") - attractor stopped")
+                        end
+                        return  -- credit to first matching job only
                     end
-                    return  -- credit to first matching job only
                 end
             end
         end

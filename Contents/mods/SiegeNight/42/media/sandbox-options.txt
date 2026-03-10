@@ -62,7 +62,7 @@ option SiegeNight.MaxZombies
 	type = integer,
 	min = 50,
 	max = 5000,
-	default = 800,
+	default = 4000,
 	page = SiegeNight,
 	translation = SN_MaxZombies,
 }
@@ -138,16 +138,23 @@ option SiegeNight.MaxActiveZombies
 	type = integer,
 	min = 50,
 	max = 2000,
-	default = 200,
+	default = 400,
 	page = SiegeNight,
 	translation = SN_MaxActiveZombies,
 }
 
+option SiegeNight.StripSiegeZombieLoot
+{
+	type = boolean,
+	default = false,
+	page = SiegeNight,
+	translation = SN_StripSiegeZombieLoot,
+}
+
 option SiegeNight.SpawnAnchor
 {
-	type = integer,
-	min = 1,
-	max = 2,
+	type = enum,
+	numValues = 2,
 	default = 1,
 	page = SiegeNight,
 	translation = SN_SpawnAnchor,
@@ -232,7 +239,7 @@ option SiegeNight.TankHealthMultiplier
 option SiegeNight.MiniHorde_Enabled
 {
 	type = boolean,
-	default = true,
+	default = false,
 	page = SiegeNightMiniHorde,
 	translation = SN_MiniHorde_Enabled,
 }
@@ -278,7 +285,7 @@ option SiegeNight.MiniHorde_CooldownMinutes
 option SiegeNight.MiniHorde_MaxPerDay
 {
 	type = integer,
-	min = 1,
+	min = 0,
 	max = 50,
 	default = 2,
 	page = SiegeNightMiniHorde,
