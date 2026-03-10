@@ -16,7 +16,7 @@
     - Gunfire (OnWeaponSwing with firearm) = 10 heat
     - Zombie kills (OnHitZombie) = 3 per kill (capped at 20 per check)
     - Vehicle use = 8 per check
-    - Running generators = 15 per check
+    - Running generators = 8 per check
     - Base player presence = 3 per check
     - Construction activity (high inventory weight) = 5 per check
 
@@ -406,7 +406,7 @@ local function onEveryTenMinutes()
                             if sq and sq.getGenerator then
                                 local okG, generator = pcall(sq.getGenerator, sq)
                                 if okG and generator and generator.isRunning and generator:isRunning() then
-                                    addHeat(px, py, 15, nil)
+                                    addHeat(px, py, 8, nil)  -- was 15, reduced to prevent generator spam
                                     foundGenerator = true
                                     break
                                 end
@@ -447,9 +447,11 @@ local function onEveryTenMinutes()
         siegeData.miniHordeDay = today
         siegeData.miniHordeTriggersToday = 0
     end
-    local maxPerDay = SN.getSandboxNumber("MiniHorde_MaxPerDay", 0, 50) or 5
+    local maxPerDay = SN.getSandboxNumber("MiniHorde_MaxPerDay", 0, 50) or 2
     if maxPerDay < 0 then maxPerDay = 0 end
-    local dailyCapReached = maxPerDay > 0 and (siegeData.miniHordeTriggersToday or 0) >= maxPerDay
+    -- MaxPerDay=0 means ZERO hordes per day (disabled), NOT unlimited.
+    -- Previously `maxPerDay > 0 and ...` made 0 = no cap, which was confusing.
+    local dailyCapReached = (maxPerDay == 0) or ((siegeData.miniHordeTriggersToday or 0) >= maxPerDay)
 
     -- If a mini-horde is currently spawning, don't trigger another one.
     -- This prevents stacked jobs from looking like "nonstop" hordes even with a sane cooldown.
@@ -729,10 +731,13 @@ local function onMiniHordeTick()
         local noPlayersLeft = #getActiveJobPlayers(job) == 0
         if job.remaining <= 0 and ((job.killCount or 0) >= (job.totalToSpawn or 0) or #job.zombieList == 0 or noPlayersLeft) then
             SN.log("Mini-horde complete (kills: " .. (job.killCount or 0) .. "/" .. (job.totalToSpawn or 0) .. (noPlayersLeft and ", no players left" or "") .. ")")
-            -- Reset heat in the horde's origin cell to prevent the fight itself
-            -- from immediately triggering the next mini-horde (feedback loop fix)
-            if job.cellKey and heatGrid[job.cellKey] then
-                heatGrid[job.cellKey].heat = 0
+            -- Reset heat AND kill counter in the horde's origin cell to prevent
+            -- the fight itself from feeding the next mini-horde trigger.
+            if job.cellKey then
+                if heatGrid[job.cellKey] then
+                    heatGrid[job.cellKey].heat = 0
+                end
+                recentKills[job.cellKey] = 0
             end
             -- INFINITE HORDE FIX: Update global cooldown to start from horde END,
             -- not horde START. Previously cooldown was set at trigger time, so by the

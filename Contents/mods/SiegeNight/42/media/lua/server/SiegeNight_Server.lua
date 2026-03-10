@@ -1462,12 +1462,11 @@ local function tickClusterActive(cs, siegeData)
     -- When surges are complete, baseline absorbs ALL remaining budget
     -- and spawns faster (every tick instead of every 2 sec)
     -- -------------------------------------------------------
-    local baselineRemaining = cs.baselineBudget - cs.baselineSpawned
-    -- After surges complete, ALL remaining zombies become baseline
-    if cs.surgesComplete then
-        baselineRemaining = totalBudgetRemaining
-    end
-    if baselineRemaining > 0 and totalBudgetRemaining > 0 and capRoom > 0 then
+    -- Baseline draws from total budget continuously — no separate cap.
+    -- This prevents dead periods during long cooldowns where baseline was exhausted.
+    -- Surges and baseline share the same pool; total stays the same.
+    local baselineRemaining = totalBudgetRemaining
+    if baselineRemaining > 0 and capRoom > 0 then
         -- Scale baseline interval by day length (longer days = slower baseline = lasts the night)
         local dayScale = SN.getDayLengthScale()
         local blInterval = cs.surgesComplete and SN.SURGE_SPAWN_INTERVAL or math.max(1, math.floor(SN.BASELINE_SPAWN_INTERVAL * dayScale))

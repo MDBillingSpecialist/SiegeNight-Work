@@ -9,7 +9,7 @@ local SN = {}
 -- ==========================================
 -- VERSION
 -- ==========================================
-SN.VERSION = "2.7.0"
+SN.VERSION = "2.7.1"
 SN.MOD_ID = "SiegeNight"
 SN.CLIENT_MODULE = "SiegeNightModule"
 
@@ -384,28 +384,31 @@ function SN.calculateWaveStructure(totalZombies)
             surgeSize = math.max(1, surgeBudget - zombiesAllocated)
         end
 
-        -- Cooldowns scaled to fill ~40% of the night (auto-scales with PZ day length).
-        -- Bigger day-length = longer cooldowns = siege fills the night proportionally.
+        -- Cooldowns scale with BOTH day length and zombie count.
+        -- Small sieges (50 zombies) get short cooldowns; huge sieges (800) fill the night.
         -- Last wave has no cooldown (final push til dawn).
         -- WaveBreakSeconds sandbox option caps cooldown if set > 0.
         local cooldownTicks = 0
         if i < numWaves then
+            local dayScale = SN.getDayLengthScale()
             local nightSec = SN.getNightDurationSeconds()
-            local targetSiegeSec = nightSec * 0.40   -- siege fills 40% of the night
-            targetSiegeSec = math.max(300, math.min(2400, targetSiegeSec))  -- clamp 5-40 min
-            -- Subtract estimated active spawn time (waves + baseline)
-            local estSpawnSec = numWaves * 25
+            -- Target scales with both night length AND zombie count (3 sec per zombie × dayScale)
+            local targetByNight = nightSec * 0.40
+            local targetByCount = totalZombies * dayScale * 3
+            local targetSiegeSec = math.min(targetByNight, targetByCount)
+            targetSiegeSec = math.max(180, math.min(2400, targetSiegeSec))  -- clamp 3-40 min
+            -- Subtract estimated active spawn time
+            local estSpawnSec = numWaves * 20
             local cooldownBudgetSec = math.max((numWaves - 1) * 10, targetSiegeSec - estSpawnSec)
             -- Distribute with decay: earlier waves get longer cooldowns
-            local gapIndex = i          -- which gap this is (1..numWaves-1)
+            local gapIndex = i
             local numGaps = numWaves - 1
-            local weight = (numGaps - gapIndex + 1)  -- first gap biggest
+            local weight = (numGaps - gapIndex + 1)
             local totalW = numGaps * (numGaps + 1) / 2
             local thisCooldownSec = math.max(10, math.floor(cooldownBudgetSec * weight / totalW))
-            -- Cap individual cooldown at 3 minutes (baseline keeps it busy, not boring)
+            -- Cap individual cooldown at 3 min
             thisCooldownSec = math.min(180, thisCooldownSec)
             cooldownTicks = thisCooldownSec * 30
-            -- Apply WaveBreakSeconds cap if set
             local maxBreakSec = SN.getSandbox("WaveBreakSeconds")
             if maxBreakSec and maxBreakSec > 0 then
                 cooldownTicks = math.min(cooldownTicks, maxBreakSec * 30)
